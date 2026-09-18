@@ -2,12 +2,16 @@ import {
   getPaymentMode,
   hasStripeCredentials,
   hasPayPayCredentials,
+  hasWeChatCredentials,
+  hasAlipayCredentials,
   getStripePublishableKey,
+  isWeChatAlipayUiEnabled,
 } from "@shinso/api";
 import { json } from "@/lib/http";
 
 export async function GET() {
   const mode = getPaymentMode();
+  const wechatAlipayUi = isWeChatAlipayUiEnabled();
   return json({
     mode,
     stripe: {
@@ -19,6 +23,17 @@ export async function GET() {
       configured: hasPayPayCredentials(),
       simulator: mode !== "mock" && !hasPayPayCredentials(),
     },
+    wechat: {
+      configured: hasWeChatCredentials(),
+      simulator: mode !== "mock" && !hasWeChatCredentials(),
+    },
+    alipay: {
+      configured: hasAlipayCredentials(),
+      simulator: mode !== "mock" && !hasAlipayCredentials(),
+    },
+    features: {
+      wechatAlipay: wechatAlipayUi,
+    },
     methods: {
       cash: { available: true, path: "immediate" },
       card: {
@@ -29,8 +44,14 @@ export async function GET() {
         available: true,
         path: mode === "mock" ? "immediate-mock" : "paypay-qr",
       },
-      wechat: { available: mode === "mock", path: "q2" },
-      alipay: { available: mode === "mock", path: "q2" },
+      wechat: {
+        available: wechatAlipayUi,
+        path: mode === "mock" ? "immediate-mock" : "wechat-qr",
+      },
+      alipay: {
+        available: wechatAlipayUi,
+        path: mode === "mock" ? "immediate-mock" : "alipay-qr",
+      },
     },
   });
 }

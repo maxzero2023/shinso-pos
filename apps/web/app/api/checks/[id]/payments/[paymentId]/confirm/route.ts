@@ -76,6 +76,12 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (payment.provider === "paypay") {
     return error("PayPay は webhook / simulate で確定してください", 400);
   }
+  if (payment.provider === "wechat") {
+    return error("WeChat は webhook / simulate で確定してください", 400);
+  }
+  if (payment.provider === "alipay") {
+    return error("Alipay は webhook / simulate で確定してください", 400);
+  }
 
   return json({
     payment: await prisma.payment.findUnique({ where: { id: payment.id } }),

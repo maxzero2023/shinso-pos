@@ -2,6 +2,8 @@ import { prisma } from "@shinso/db";
 import {
   createStripeGateway,
   createPayPayGateway,
+  createWeChatGateway,
+  createAlipayGateway,
   markPaymentTerminalFailure,
 } from "@shinso/api";
 import { requireSession, isResponse } from "@/lib/auth-guard";
@@ -33,6 +35,12 @@ export async function POST(_req: Request, ctx: Ctx) {
   }
   if (payment.provider === "paypay" && payment.providerPaymentId) {
     await createPayPayGateway().cancelPayment?.(payment.providerPaymentId);
+  }
+  if (payment.provider === "wechat" && payment.providerPaymentId) {
+    await createWeChatGateway().cancelPayment?.(payment.providerPaymentId);
+  }
+  if (payment.provider === "alipay" && payment.providerPaymentId) {
+    await createAlipayGateway().cancelPayment?.(payment.providerPaymentId);
   }
 
   const result = await markPaymentTerminalFailure(

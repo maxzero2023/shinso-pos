@@ -54,6 +54,9 @@ type PayConfig = {
   mode: "mock" | "sandbox" | "live";
   stripe: { configured: boolean; publishableKey: string | null; simulator: boolean };
   paypay: { configured: boolean; simulator: boolean };
+  wechat?: { configured: boolean; simulator: boolean };
+  alipay?: { configured: boolean; simulator: boolean };
+  features?: { wechatAlipay?: boolean };
 };
 
 type PendingPayment = {
@@ -230,6 +233,64 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
   }
 
 
+  async function payWithMethod(method: string) {
+    if (!check) return;
+    setPayMethod(method);
+    setBusy(true);
+    setMsg("");
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `pos_${check.id}_${Date.now()}`;
+    const res = await fetch(`/api/checks/${check.id}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        method,
+        amountYen: check.totalYen,
+        idempotencyKey,
+        ...(payMemberId ? { memberId: payMemberId } : {}),
+      }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setMsg(data.error ?? "精算失敗");
+      return;
+    }
+
+    const payment = data.payment as PendingPayment & { status: string };
+    if (payment?.status === "succeeded") {
+      setMsg(
+        data.mode === "mock"
+          ? "精算完了（mock）。テーブルが空席になりました。"
+          : "精算完了。テーブルが空席になりました。"
+      );
+      setCheck(null);
+      setPending(null);
+      await refreshTables();
+      return;
+    }
+
+    setPending({
+      id: payment.id,
+      method,
+      status: payment.status,
+      clientSecret: data.clientSecret ?? payment.clientSecret,
+      redirectUrl: data.redirectUrl,
+      providerPayload: data.providerPayload,
+    });
+    setMsg(
+      method === "card"
+        ? "カード決済を確定してください（処理中は伝票 open）"
+        : method === "wechat"
+          ? "WeChat Pay（微信）を完了してください（処理中は伝票 open）"
+          : method === "alipay"
+            ? "Alipay（支付宝）を完了してください（処理中は伝票 open）"
+            : "PayPay 支払いを完了してください（処理中は伝票 open）"
+    );
+  }
+
   async function pay() {
     if (!check) return;
     setBusy(true);
@@ -280,7 +341,11 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
     setMsg(
       payMethod === "card"
         ? "カード決済を確定してください（処理中は伝票 open）"
-        : "PayPay 支払いを完了してください（処理中は伝票 open）"
+        : payMethod === "wechat"
+          ? "WeChat Pay（微信）を完了してください（処理中は伝票 open）"
+          : payMethod === "alipay"
+            ? "Alipay（支付宝）を完了してください（処理中は伝票 open）"
+            : "PayPay 支払いを完了してください（処理中は伝票 open）"
     );
   }
 
@@ -318,10 +383,13 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
     setQrUrl(data.url);
   }
 
-  async function simulatePayPay(outcome: "succeeded" | "failed" | "canceled") {
+  async function simulateQrPayment(
+    provider: "paypay" | "wechat" | "alipay",
+    outcome: "succeeded" | "failed" | "canceled"
+  ) {
     if (!pending || !check) return;
     setBusy(true);
-    const res = await fetch("/api/payments/paypay/simulate", {
+    const res = await fetch(`/api/payments/${provider}/simulate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paymentId: pending.id, outcome }),
@@ -332,24 +400,35 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
       setMsg(data.error ?? "シミュレート失敗");
       return;
     }
+    const labels: Record<string, string> = {
+      paypay: "PayPay",
+      wechat: "WeChat Pay（微信）",
+      alipay: "Alipay（支付宝）",
+    };
+    const label = labels[provider] ?? provider;
     if (outcome === "succeeded") {
-      setMsg("PayPay 精算完了（シミュレータ）。テーブルが空席になりました。");
+      setMsg(`${label} 精算完了（シミュレータ）。テーブルが空席になりました。`);
       setCheck(null);
       setPending(null);
       await refreshTables();
     } else {
       setMsg(
         outcome === "failed"
-          ? "PayPay 失敗 — 伝票は open のまま。再試行できます。"
-          : "PayPay 取消 — 伝票は open のまま。再試行できます。"
+          ? `${label} 失敗 — 伝票は open のまま。再試行できます。`
+          : `${label} 取消 — 伝票は open のまま。再試行できます。`
       );
       setPending(null);
       await loadCheck(check.id);
     }
   }
 
+  async function simulatePayPay(outcome: "succeeded" | "failed" | "canceled") {
+    return simulateQrPayment("paypay", outcome);
+  }
+
   const areas = [...new Set(tables.map((t) => t.areaName))];
   const modeLabel = payConfig?.mode ?? "mock";
+  const wechatAlipayEnabled = payConfig?.features?.wechatAlipay !== false;
   const payButtonLabel =
     modeLabel === "mock"
       ? "精算（mock）"
@@ -357,7 +436,11 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
         ? "カード決済を開始"
         : payMethod === "paypay"
           ? "PayPay 決済を開始"
-          : "精算";
+          : payMethod === "wechat"
+            ? "WeChat Pay（微信）を開始"
+            : payMethod === "alipay"
+              ? "Alipay（支付宝）を開始"
+              : "精算";
 
   return (
     <div className={deviceMode === "t1" ? "stack t1-pos" : "stack"}>
@@ -376,8 +459,11 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
         支払いモード: <strong>{modeLabel}</strong>
         {payConfig?.stripe.simulator ? " · Stripe シミュレータ" : null}
         {payConfig?.paypay.simulator ? " · PayPay シミュレータ" : null}
+        {payConfig?.wechat?.simulator ? " · WeChat シミュレータ" : null}
+        {payConfig?.alipay?.simulator ? " · Alipay シミュレータ" : null}
         {payConfig?.stripe.configured ? " · Stripe 接続済" : null}
         {payConfig?.paypay.configured ? " · PayPay 接続済" : null}
+        {wechatAlipayEnabled ? " · 訪日客: WeChat/Alipay" : null}
       </div>
 
       <div className="row" style={{ alignItems: "stretch" }}>
@@ -484,13 +570,35 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
                   <option value="paypay">PayPay</option>
                   <option value="cash">現金</option>
                   <option value="card">カード</option>
-                  {modeLabel === "mock" ? (
+                  {wechatAlipayEnabled ? (
                     <>
-                      <option value="wechat">WeChat (mock/Q2)</option>
-                      <option value="alipay">Alipay (mock/Q2)</option>
+                      <option value="wechat">WeChat Pay（微信）</option>
+                      <option value="alipay">Alipay（支付宝）</option>
                     </>
                   ) : null}
                 </select>
+                {wechatAlipayEnabled ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ background: "#07C160", borderColor: "#07C160" }}
+                      disabled={busy || check.totalYen <= 0 || !!pending}
+                      onClick={() => payWithMethod("wechat")}
+                    >
+                      WeChat 微信
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ background: "#1677FF", borderColor: "#1677FF" }}
+                      disabled={busy || check.totalYen <= 0 || !!pending}
+                      onClick={() => payWithMethod("alipay")}
+                    >
+                      Alipay 支付宝
+                    </button>
+                  </>
+                ) : null}
                 <button
                   className="btn secondary"
                   disabled={busy || check.totalYen <= 0 || !!pending}
@@ -615,6 +723,104 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
                       className="btn ghost"
                       disabled={busy}
                       onClick={() => simulatePayPay("canceled")}
+                    >
+                      取消（伝票は open のまま）
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {pending?.method === "wechat" ? (
+                <div className="card stack" style={{ borderColor: "#07C160" }}>
+                  <strong>WeChat Pay（微信）支払い（処理中）</strong>
+                  <div className="muted" style={{ fontSize: "0.85rem" }}>
+                    <span
+                      style={{
+                        background: "#f39c12",
+                        color: "#000",
+                        padding: "0.15rem 0.4rem",
+                        borderRadius: 4,
+                        fontWeight: 700,
+                        marginRight: 6,
+                      }}
+                    >
+                      WECHAT SANDBOX SIMULATOR
+                    </span>
+                    商戶キー未設定時はシミュレータで API 形状を再現します（実 WeChat API は呼びません）。
+                  </div>
+                  {pending.redirectUrl ? (
+                    <a href={pending.redirectUrl} target="_blank" rel="noreferrer">
+                      シミュレータページを開く
+                    </a>
+                  ) : null}
+                  <div className="row">
+                    <button
+                      className="btn"
+                      disabled={busy}
+                      onClick={() => simulateQrPayment("wechat", "succeeded")}
+                    >
+                      成功
+                    </button>
+                    <button
+                      className="btn ghost"
+                      disabled={busy}
+                      onClick={() => simulateQrPayment("wechat", "failed")}
+                    >
+                      失敗（伝票は open のまま）
+                    </button>
+                    <button
+                      className="btn ghost"
+                      disabled={busy}
+                      onClick={() => simulateQrPayment("wechat", "canceled")}
+                    >
+                      取消（伝票は open のまま）
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {pending?.method === "alipay" ? (
+                <div className="card stack" style={{ borderColor: "#1677FF" }}>
+                  <strong>Alipay（支付宝）支払い（処理中）</strong>
+                  <div className="muted" style={{ fontSize: "0.85rem" }}>
+                    <span
+                      style={{
+                        background: "#f39c12",
+                        color: "#000",
+                        padding: "0.15rem 0.4rem",
+                        borderRadius: 4,
+                        fontWeight: 700,
+                        marginRight: 6,
+                      }}
+                    >
+                      ALIPAY SANDBOX SIMULATOR
+                    </span>
+                    商戶キー未設定時はシミュレータで API 形状を再現します（実 Alipay API は呼びません）。
+                  </div>
+                  {pending.redirectUrl ? (
+                    <a href={pending.redirectUrl} target="_blank" rel="noreferrer">
+                      シミュレータページを開く
+                    </a>
+                  ) : null}
+                  <div className="row">
+                    <button
+                      className="btn"
+                      disabled={busy}
+                      onClick={() => simulateQrPayment("alipay", "succeeded")}
+                    >
+                      成功
+                    </button>
+                    <button
+                      className="btn ghost"
+                      disabled={busy}
+                      onClick={() => simulateQrPayment("alipay", "failed")}
+                    >
+                      失敗（伝票は open のまま）
+                    </button>
+                    <button
+                      className="btn ghost"
+                      disabled={busy}
+                      onClick={() => simulateQrPayment("alipay", "canceled")}
                     >
                       取消（伝票は open のまま）
                     </button>

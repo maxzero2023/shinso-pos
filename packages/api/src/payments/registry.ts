@@ -1,6 +1,8 @@
 import { mockGateway } from "./mock";
 import { createStripeGateway } from "./stripe";
 import { createPayPayGateway } from "./paypay";
+import { createWeChatGateway } from "./wechat";
+import { createAlipayGateway } from "./alipay";
 import { getPaymentMode, isImmediateMockMethod } from "./mode";
 import type {
   CreatePaymentRequest,
@@ -16,6 +18,8 @@ export function resolveGateway(
   if (isImmediateMockMethod(method, mode)) return mockGateway;
   if (method === "card") return createStripeGateway();
   if (method === "paypay") return createPayPayGateway();
+  if (method === "wechat") return createWeChatGateway();
+  if (method === "alipay") return createAlipayGateway();
   return mockGateway;
 }
 
