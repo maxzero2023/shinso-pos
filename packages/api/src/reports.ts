@@ -1,10 +1,15 @@
 import { z } from "zod";
 
-export type ReportRole = "owner" | "floor" | "kitchen";
+export type ReportRole = "brand_admin" | "owner" | "manager" | "floor" | "kitchen";
 
-/** Demo: owner + floor may read reports; kitchen may not. Documented in README. */
+/** Demo: brand_admin / owner / manager / floor may read reports; kitchen may not. */
 export function canReadReports(role: ReportRole): boolean {
-  return role === "owner" || role === "floor";
+  return (
+    role === "brand_admin" ||
+    role === "owner" ||
+    role === "manager" ||
+    role === "floor"
+  );
 }
 
 const ymdRe = /^\d{4}-\d{2}-\d{2}$/;

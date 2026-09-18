@@ -25,11 +25,13 @@ type Staff = { id: string; email: string; name: string; role: string; active: bo
 
 export function AdminClient({
   storeName,
+  brandName,
   areas,
   categories,
   staff,
 }: {
   storeName: string;
+  brandName?: string | null;
   areas: Area[];
   categories: Category[];
   staff: Staff[];
@@ -39,12 +41,16 @@ export function AdminClient({
       <div className="card">
         <strong>店舗</strong>
         <div>{storeName}</div>
+        {brandName ? <div className="muted">ブランド: {brandName}</div> : null}
         <div style={{ marginTop: "0.75rem" }} className="row">
           <Link className="btn secondary" href="/admin/reports">
             経営レポート →
           </Link>
           <Link className="btn secondary" href="/admin/crm">
             CRM / LINE →
+          </Link>
+          <Link className="btn secondary" href="/admin/multi-store">
+            多店アーキ →
           </Link>
         </div>
       </div>

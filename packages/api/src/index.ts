@@ -11,3 +11,4 @@ export * from "./ops";
 export * from "./reports";
 export * from "./crm";
 export * from "./i18n";
+export * from "./store-scope";

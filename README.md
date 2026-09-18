@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -53,13 +53,17 @@ pnpm dev
 
 ### Demo 账号
 
-| 角色 | Email | Password |
-|------|-------|----------|
-| Owner | `owner@shinso.demo` | `demo1234` |
-| Floor | `floor@shinso.demo` | `demo1234` |
-| Kitchen | `kitchen@shinso.demo` | `demo1234` |
+| 角色 | Email | Password | 店舗 |
+|------|-------|----------|------|
+| Brand admin | `brandadmin@shinso.demo` | `demo1234` | ブランド横断（A/B 切替可） |
+| Owner | `owner@shinso.demo` | `demo1234` | シンソウデモ店 (A) |
+| Manager | `manager@shinso.demo` | `demo1234` | シンソウデモ店 (A) |
+| Floor | `floor@shinso.demo` | `demo1234` | シンソウデモ店 (A) |
+| Kitchen | `kitchen@shinso.demo` | `demo1234` | シンソウデモ店 (A) |
+| Manager B | `manager-b@shinso.demo` | `demo1234` | シンソウデモ店 B |
+| Floor B | `floor-b@shinso.demo` | `demo1234` | シンソウデモ店 B |
 
-Seed 内容：店舗「シンソウデモ店」、3 エリア（カウンター / テーブル / 個室）、12 卓、23 品（前菜・主食・焼鳥・酒類・デザート）、加料（大盛 / 追加ソース / 飲み放題オプション）。
+Seed 内容：ブランド「SHINSO Demo」配下に **店舗 A「シンソウデモ店」**（3 エリア / 12 卓 / 23 品）と **店舗 B「シンソウデモ店 B」**（隔離デモ用ミニメニュー）。既存 `owner@` / `floor@` / `kitchen@` ログインは変更なし。
 
 ## 演示路径
 
@@ -472,6 +476,11 @@ pnpm test
 | AUT-93 | 菜单三语字段 + seed |
 | AUT-92 | QR/手持端主路径三语打磨 |
 | AUT-91 | tests + README 演示 |
+| AUT-37 | 多店 Brand/Store MVP |
+| AUT-94 | Brand/Store モデル + 単店移行 |
+| AUT-95 | 権限 + switch-store |
+| AUT-97 | Admin 多店 UI |
+| AUT-96 | seed/tests/README |
 | AUT-35 | 微信/支付宝访日客（沙箱模拟器） |
 | AUT-86 | WeChat/Alipay gateway + registry |
 | AUT-87 | Webhook/simulate + settle |
@@ -512,6 +521,36 @@ pnpm test
 - 空态 / 加载 / 错误 / 无 open check 三语覆盖
 - Check 同单、厨票、结账语义不变
 - 触控热区 ≥ 44px；品牌色不变
+
+
+## 多店アーキ：Brand / Store（AUT-37）
+
+単店 Q1/Q2 フローを壊さず、**ブランド → 門店** 階層・権限・切替の MVP。
+
+| 概念 | 内容 |
+|------|------|
+| Brand 1—N Store | 既存店舗はデフォルトブランド「SHINSO Demo」にマウント |
+| 役割 | `brand_admin`（ブランド横断）/ `owner`・`manager`（店舗 elevated）/ `floor`・`kitchen`（店舗のみ） |
+| セッション | `activeStoreId`（=`storeId` 互換）+ `POST /api/session/switch-store` |
+| 隔離 | Check / Table / Menu / Payments / CRM はいずれも **active store** の `storeId` 行レベル |
+
+### デモパス
+
+1. `pnpm db:migrate` → `pnpm db:seed` → `pnpm dev`
+2. `brandadmin@shinso.demo` / `demo1234` でログイン → 側欄 **店舗切替** または **/admin/multi-store**
+3. 店舗 A ↔ B を切替 → `/pos` の卓番・`/api/menu/categories` が店ごとに変わる（串データなし）
+4. `manager@shinso.demo` で B へ切替試行 → **403**
+5. レガシー: `floor@shinso.demo` / `owner@shinso.demo` は従来どおり店舗 A で Q1 開台フロー可
+
+### API
+
+- `GET /api/session/stores` · `POST /api/session/switch-store` `{ storeId }`
+- `GET/POST /api/brands` · `GET/PATCH /api/brands/:id`
+- `GET/POST /api/stores` · `GET/PATCH /api/stores/:id`（作成は `brand_admin` のみ）
+
+### 範囲外（本 MVP）
+
+加盟精算、跨店在庫調撥、加盟承認ワークフロー。
 
 ## 明确不做（本 MVP）
 
