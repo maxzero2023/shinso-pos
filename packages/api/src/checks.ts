@@ -8,10 +8,8 @@ export const addItemSchema = z.object({
   note: z.string().max(200).optional(),
 });
 
-export const paySchema = z.object({
-  method: z.enum(["cash", "card", "paypay", "wechat", "alipay"]),
-  amountYen: z.number().int().positive(),
-});
+/** @deprecated import paySchema from payments — kept for backward compat */
+export { paySchema } from "./payments/types";
 
 export const kitchenStatusSchema = z.object({
   status: z.enum(["queued", "preparing", "ready", "served"]),

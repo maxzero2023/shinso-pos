@@ -253,18 +253,55 @@ model KitchenTicketLine {
   @@index([checkItemId])
 }
 
+enum PaymentStatus {
+  pending
+  succeeded
+  failed
+  canceled
+}
+
+enum PaymentProvider {
+  mock
+  stripe
+  paypay
+}
+
 model Payment {
-  id         String        @id @default(cuid())
-  checkId    String
-  method     PaymentMethod
-  amountYen  Int
-  mock       Boolean       @default(true)
-  paidAt     DateTime      @default(now())
-  createdAt  DateTime      @default(now())
+  id                String          @id @default(cuid())
+  checkId           String
+  method            PaymentMethod
+  amountYen         Int
+  mock              Boolean         @default(true)
+  status            PaymentStatus   @default(succeeded)
+  provider          PaymentProvider @default(mock)
+  providerPaymentId String?
+  clientSecret      String?
+  idempotencyKey    String?         @unique
+  failureReason     String?
+  metadata          Json?
+  paidAt            DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   check Check @relation(fields: [checkId], references: [id], onDelete: Cascade)
 
   @@index([checkId])
+  @@index([providerPaymentId])
+  @@index([status])
+}
+
+/// Idempotent webhook inbox (Stripe event.id / PayPay notificationId)
+model PaymentWebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventId     String
+  eventType   String
+  paymentId   String?
+  payload     Json?
+  processedAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+  @@index([paymentId])
 }
 
 enum ReservationStatus {
