@@ -429,6 +429,7 @@ async function main() {
   });
 
   // AUT-69: standard hardware pack (T1 + kitchen display + printer)
+  // AUT-110: second Japan-common pack (handheld + alt KDS + alt thermal) — does not demote standard
   await prisma.device.createMany({
     data: [
       {
@@ -436,6 +437,8 @@ async function main() {
         type: "t1_pos",
         name: "SHINSO T1",
         code: "T1-01",
+        pack: "standard",
+        isPrimaryStandardPack: true,
         status: "online",
         lastHeartbeatAt: new Date(),
         meta: { model: "T1", touch: true },
@@ -445,6 +448,8 @@ async function main() {
         type: "kitchen_display",
         name: "厨房ディスプレイ",
         code: "KDS-01",
+        pack: "standard",
+        isPrimaryStandardPack: true,
         status: "online",
         lastHeartbeatAt: new Date(),
         meta: { fullscreen: true },
@@ -454,9 +459,44 @@ async function main() {
         type: "printer",
         name: "80mm レシートプリンタ",
         code: "PRT-01",
+        pack: "standard",
+        isPrimaryStandardPack: true,
         status: "online",
         lastHeartbeatAt: new Date(),
         meta: { paperWidthMm: 80, locale: "ja-JP" },
+      },
+      {
+        storeId: store.id,
+        type: "handheld_pos",
+        name: "ハンディ POS (Sunmi 系)",
+        code: "HH-01",
+        pack: "alt",
+        isPrimaryStandardPack: false,
+        status: "online",
+        lastHeartbeatAt: new Date(),
+        meta: { model: "sunmi_handheld", touch: true, role: "staff" },
+      },
+      {
+        storeId: store.id,
+        type: "kitchen_display_alt",
+        name: "厨房ディスプレイ (alt)",
+        code: "KDS-A1",
+        pack: "alt",
+        isPrimaryStandardPack: false,
+        status: "online",
+        lastHeartbeatAt: new Date(),
+        meta: { fullscreen: true, pack: "alt" },
+      },
+      {
+        storeId: store.id,
+        type: "thermal_printer_alt",
+        name: "サーマルプリンタ (alt)",
+        code: "PRT-A1",
+        pack: "alt",
+        isPrimaryStandardPack: false,
+        status: "online",
+        lastHeartbeatAt: new Date(),
+        meta: { paperWidthMm: 80, locale: "ja-JP", pack: "alt" },
       },
     ],
   });
@@ -1144,7 +1184,7 @@ async function main() {
   const deviceCount = await prisma.device.count({ where: { storeId: store.id } });
   console.log(`Reservations (tonight): ${reservationCount}, Waitlist: ${waitlistCount}`);
   const shiftCount = await prisma.shift.count({ where: { storeId: store.id, status: "open" } });
-  console.log(`Devices: ${deviceCount} (T1-01 / KDS-01 / PRT-01)`);
+  console.log(`Devices: ${deviceCount} (standard T1/KDS/PRT + alt HH/KDS-A/PRT-A)`);
   console.log(`Open shifts: ${shiftCount} (businessDate ${tokyoDateStr})`);
   const storeBTables = await prisma.table.count({ where: { area: { storeId: storeB.id } } });
   const storeBItems = await prisma.menuItem.count({

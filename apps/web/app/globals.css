@@ -238,3 +238,67 @@ button, input, select, textarea { font: inherit; }
   min-height: 44px;
   padding: 0.35rem 0.6rem;
 }
+
+/* AUT-41: /staff handheld polish */
+.handheld-shell {
+  max-width: 420px;
+  padding-bottom: 5.5rem;
+}
+.handheld-header {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: var(--bg);
+  padding-bottom: 0.5rem;
+}
+.handheld-code-input {
+  flex: 1;
+  min-width: 140px;
+  font-size: 1.05rem;
+}
+.handheld-select {
+  font-size: 1.05rem;
+  min-height: 48px;
+}
+.handheld-item-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+.handheld-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-height: 64px;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.25;
+  padding: 0.7rem 0.75rem;
+}
+.handheld-sticky-actions {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 9;
+}
+.handheld-fire {
+  width: 100%;
+  min-height: 52px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.handheld-msg {
+  font-size: 0.95rem;
+}
+@media (max-width: 480px) {
+  .mobile-shell {
+    padding: 0.75rem;
+  }
+  .handheld-item-grid {
+    grid-template-columns: 1fr;
+  }
+  .touch-target {
+    min-height: 48px;
+  }
+}

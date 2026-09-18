@@ -474,6 +474,15 @@ enum DeviceType {
   t1_pos
   kitchen_display
   printer
+  /// AUT-41 alt pack: Japan-common handheld (e.g. Sunmi-class simulator)
+  handheld_pos
+  kitchen_display_alt
+  thermal_printer_alt
+}
+
+enum DevicePack {
+  standard
+  alt
 }
 
 enum DeviceStatus {
@@ -495,18 +504,22 @@ enum PrintJobStatus {
   failed
 }
 
-/// Store-scoped hardware (T1 / kitchen display / printer). AUT-30 / AUT-68.
+/// Store-scoped hardware. AUT-30 standard pack + AUT-41 alt pack.
 model Device {
-  id              String       @id @default(cuid())
-  storeId         String
-  type            DeviceType
-  name            String
-  code            String
-  status          DeviceStatus @default(offline)
-  lastHeartbeatAt DateTime?
-  meta            Json?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  id                     String       @id @default(cuid())
+  storeId                String
+  type                   DeviceType
+  name                   String
+  code                   String
+  /// standard = Q1 T1+KDS+printer; alt = second Japan-common pack (does not demote standard)
+  pack                   DevicePack   @default(standard)
+  /// True for Q1 standard-pack devices; alt pack is always false
+  isPrimaryStandardPack  Boolean      @default(true)
+  status                 DeviceStatus @default(offline)
+  lastHeartbeatAt        DateTime?
+  meta                   Json?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
 
   store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   printJobs PrintJob[]
@@ -514,6 +527,7 @@ model Device {
   @@unique([storeId, code])
   @@index([storeId])
   @@index([storeId, type])
+  @@index([storeId, pack])
   @@index([status])
 }
 

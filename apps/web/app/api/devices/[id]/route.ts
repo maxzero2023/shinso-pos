@@ -1,5 +1,5 @@
 import { prisma } from "@shinso/db";
-import { deviceStatusSchema, isDeviceEffectivelyOffline, devicePrintError } from "@shinso/api";
+import { deviceStatusSchema, isDeviceEffectivelyOffline, devicePrintError, isPrinterDeviceType } from "@shinso/api";
 import { z } from "zod";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
@@ -22,7 +22,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     device: {
       ...device,
       effectivelyOffline: isDeviceEffectivelyOffline(device),
-      printError: device.type === "printer" ? devicePrintError(device) : null,
+      printError: isPrinterDeviceType(device.type) ? devicePrintError(device) : null,
     },
   });
 }

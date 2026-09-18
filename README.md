@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -480,6 +480,7 @@ pnpm test
 | AUT-38 | 在庫 MVP（原料・出入庫・低在庫・BOM） |
 | AUT-39 | 調達：補貨提案 → 発注草稿 → 入庫 |
 | AUT-40 | 財務：コスト粗算・毛利・簡要費用 |
+| AUT-41 | ハードウェア拡張：第二套機型 / 手持 |
 | AUT-106 | コスト粗算 + 毛利 API |
 | AUT-107 | ExpenseEntry |
 | AUT-108 | Admin 毛利看板 + 口径ドキュメント |
@@ -740,4 +741,45 @@ pnpm test
 - 印刷・厨显は同一 Check / KitchenTicket を消費（影オーダー禁止）
 - paid Check のレシート再印刷は可；新規 fire は不可
 - デバイスは Store 所属（日本単店）
+
+## ハードウェア拡張：第二套 + 手持（AUT-41）
+
+Q1 **標準包は基準のまま**（置換・降格しない）。第二套は `pack=alt` / `isPrimaryStandardPack=false`。
+
+### 互換性マトリクス（対応プロファイルのみ — 全機種対応は未宣言）
+
+| pack | type | ラベル | 役割 | 状態 |
+|------|------|--------|------|------|
+| standard | t1_pos | SHINSO T1 POS | FOH タッチ | ✅ シミュレータ |
+| standard | kitchen_display | Kitchen display | 厨屏フルスクリーン | ✅ シミュレータ |
+| standard | printer | 80mm thermal | レシート / 厨打 | ✅ シミュレータ |
+| alt | handheld_pos | Handheld POS (Sunmi 系) | 手持 /staff | ✅ シミュレータ |
+| alt | kitchen_display_alt | Kitchen display (alt) | 副厨屏 | ✅ シミュレータ |
+| alt | thermal_printer_alt | Thermal printer (alt) | 副サーマル | ✅ シミュレータ |
+
+**明示的に未対応:** 無制限 SKU、自社カスタムハード、実機 SDK ブリッジ（`HARDWARE_MODE=live` は未接続メッセージ）、全日本市販機種の保証。
+
+### 印刷ルーティング
+
+1. `deviceId` 指定 → そのプリンタ（alt デモ用。標準デフォルトは奪わない）
+2. 未指定 → **標準包** `printer`（`isPrimaryStandardPack`）を優先
+3. 標準包が無い場合のみ他プリンタへフォールバック
+
+### Seed（追加）
+
+| code | type | pack |
+|------|------|------|
+| HH-01 | handheld_pos | alt |
+| KDS-A1 | kitchen_display_alt | alt |
+| PRT-A1 | thermal_printer_alt | alt |
+
+### デモパス（第二套 + 手持）
+
+1. `pnpm db:seed` → `pnpm dev` → `floor@shinso.demo` / `demo1234`
+2. **/devices** — 標準包と第二套を並列表記；「第二套を登録」「alt で再印刷デモ」
+3. **/staff** — 手持レイアウト：卓番/コード選択 → 点菜 → **厨房へ送る**（同一 Check）
+4. `POST /api/print-jobs` に `deviceId=<PRT-A1>` で alt 出票；続けて deviceId 無し再印刷は **PRT-01** のまま
+5. 標準包回帰: `/pos?device=t1` → 送厨 → 精算 → `/devices` プレビュー
+6. ワンショット: `pnpm demo:hardware`（標準） / `pnpm demo:hardware:alt`（第二套）
+
 

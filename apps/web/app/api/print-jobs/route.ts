@@ -42,6 +42,7 @@ export async function POST(req: Request) {
       storeId: session.storeId,
       checkId: parsed.data.checkId,
       reprint: parsed.data.reprint ?? true,
+      deviceId: parsed.data.deviceId,
     });
     if (!result.ok) return error(result.error, result.status);
     return json(result.data, result.status);
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
   const result = await printKitchenForTicket({
     storeId: session.storeId,
     kitchenTicketId: parsed.data.kitchenTicketId,
+    deviceId: parsed.data.deviceId,
   });
   if (!result.ok) return error(result.error, result.status);
   return json(result.data, result.status);

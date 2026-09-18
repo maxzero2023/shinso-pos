@@ -12,6 +12,7 @@ export async function printReceiptForCheck(opts: {
   storeId: string;
   checkId: string;
   reprint?: boolean;
+  deviceId?: string;
 }) {
   const check = await prisma.check.findFirst({
     where: { id: opts.checkId, table: { area: { storeId: opts.storeId } } },
@@ -49,6 +50,7 @@ export async function printReceiptForCheck(opts: {
     storeId: opts.storeId,
     checkId: check.id,
     payload,
+    deviceId: opts.deviceId,
   });
 
   return { ok: true as const, status: 201 as const, data: { job, mode: getHardwareMode() } };
@@ -57,6 +59,7 @@ export async function printReceiptForCheck(opts: {
 export async function printKitchenForTicket(opts: {
   storeId: string;
   kitchenTicketId: string;
+  deviceId?: string;
 }) {
   const ticket = await prisma.kitchenTicket.findFirst({
     where: {
@@ -91,6 +94,7 @@ export async function printKitchenForTicket(opts: {
     checkId: ticket.checkId,
     kitchenTicketId: ticket.id,
     payload,
+    deviceId: opts.deviceId,
   });
 
   return { ok: true as const, status: 201 as const, data: { job, mode: getHardwareMode() } };

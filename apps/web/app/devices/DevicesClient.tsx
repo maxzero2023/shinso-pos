@@ -1,12 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+
+type DeviceType =
+  | "t1_pos"
+  | "kitchen_display"
+  | "printer"
+  | "handheld_pos"
+  | "kitchen_display_alt"
+  | "thermal_printer_alt";
 
 type Device = {
   id: string;
-  type: "t1_pos" | "kitchen_display" | "printer";
+  type: DeviceType;
   name: string;
   code: string;
+  pack: "standard" | "alt";
+  isPrimaryStandardPack: boolean;
   status: "online" | "offline" | "out_of_paper" | "error";
   lastHeartbeatAt: string | null;
   effectivelyOffline: boolean;
@@ -25,10 +35,13 @@ type PrintJob = {
   device: { id: string; code: string; name: string; status: string } | null;
 };
 
-const TYPE_LABEL: Record<Device["type"], string> = {
+const TYPE_LABEL: Record<DeviceType, string> = {
   t1_pos: "T1 POS",
   kitchen_display: "厨房ディスプレイ",
   printer: "プリンタ",
+  handheld_pos: "ハンディ POS",
+  kitchen_display_alt: "厨房ディスプレイ (alt)",
+  thermal_printer_alt: "サーマル (alt)",
 };
 
 const STATUS_LABEL: Record<Device["status"], string> = {
@@ -38,11 +51,42 @@ const STATUS_LABEL: Record<Device["status"], string> = {
   error: "エラー",
 };
 
+const STANDARD_PACK = [
+  { type: "t1_pos" as const, name: "SHINSO T1", code: "T1-01", pack: "standard" as const },
+  { type: "kitchen_display" as const, name: "厨房ディスプレイ", code: "KDS-01", pack: "standard" as const },
+  { type: "printer" as const, name: "80mm レシートプリンタ", code: "PRT-01", pack: "standard" as const },
+];
+
+const ALT_PACK = [
+  {
+    type: "handheld_pos" as const,
+    name: "ハンディ POS (Sunmi 系)",
+    code: "HH-01",
+    pack: "alt" as const,
+  },
+  {
+    type: "kitchen_display_alt" as const,
+    name: "厨房ディスプレイ (alt)",
+    code: "KDS-A1",
+    pack: "alt" as const,
+  },
+  {
+    type: "thermal_printer_alt" as const,
+    name: "サーマルプリンタ (alt)",
+    code: "PRT-A1",
+    pack: "alt" as const,
+  },
+];
+
 function statusStyle(status: Device["status"]): CSSProperties {
   if (status === "online") return { background: "#e8f5e9", color: "#2e7d32" };
   if (status === "out_of_paper") return { background: "#fff3e0", color: "#ef6c00" };
   if (status === "error") return { background: "#fce4ec", color: "#c2185b" };
   return { background: "#eceff1", color: "#546e7a" };
+}
+
+function isPrinter(type: DeviceType) {
+  return type === "printer" || type === "thermal_printer_alt";
 }
 
 export function DevicesClient() {
@@ -111,14 +155,9 @@ export function DevicesClient() {
     await refresh();
   }
 
-  async function registerDefaults() {
+  async function registerPack(pack: typeof STANDARD_PACK | typeof ALT_PACK, label: string) {
     setBusy(true);
     setMsg("");
-    const pack = [
-      { type: "t1_pos", name: "SHINSO T1", code: "T1-01" },
-      { type: "kitchen_display", name: "厨房ディスプレイ", code: "KDS-01" },
-      { type: "printer", name: "80mm レシートプリンタ", code: "PRT-01" },
-    ];
     for (const d of pack) {
       const res = await fetch("/api/devices", {
         method: "POST",
@@ -133,11 +172,110 @@ export function DevicesClient() {
       }
     }
     setBusy(false);
-    setMsg("標準ハードウェア包を登録しました（既存はスキップ）");
+    setMsg(`${label}を登録しました（既存はスキップ）`);
     await refresh();
   }
 
-  const printer = devices.find((d) => d.type === "printer");
+  async function printViaAlt() {
+    const alt = devices.find((d) => d.type === "thermal_printer_alt");
+    if (!alt) {
+      setMsg("alt プリンタがありません。第二套を登録してください。");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    const list = await fetch("/api/print-jobs?limit=50").then((r) => r.json());
+    const withCheck = (list.jobs as Array<{ type: string; checkId?: string | null }>).find(
+      (j) => j.type === "receipt" && j.checkId
+    );
+    if (!withCheck?.checkId) {
+      setBusy(false);
+      setMsg("checkId 付きレシートがありません。精算後に再実行してください。");
+      return;
+    }
+    const res = await fetch("/api/print-jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "receipt",
+        checkId: withCheck.checkId,
+        reprint: true,
+        deviceId: alt.id,
+      }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setMsg(data.error ?? "alt 印刷失敗");
+      return;
+    }
+    const job = data.job ?? data.printJob;
+    setMsg(
+      `alt プリンタへ印刷: ${job?.status ?? "?"} → ${alt.code}（標準デフォルトは変更なし）`
+    );
+    await refresh();
+  }
+
+  const standardDevices = useMemo(
+    () => devices.filter((d) => d.pack === "standard"),
+    [devices]
+  );
+  const altDevices = useMemo(() => devices.filter((d) => d.pack === "alt"), [devices]);
+  const standardPrinter = devices.find((d) => d.type === "printer" && d.pack === "standard");
+  const printerError =
+    standardPrinter?.printError ??
+    devices.find((d) => isPrinter(d.type) && d.printError)?.printError ??
+    null;
+
+  function renderDeviceCard(d: Device) {
+    return (
+      <div key={d.id} className="card stack">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <strong>
+            {TYPE_LABEL[d.type]} · {d.code}
+          </strong>
+          <span className="badge" style={statusStyle(d.status)}>
+            {STATUS_LABEL[d.status]}
+          </span>
+        </div>
+        <div className="muted" style={{ fontSize: "0.85rem" }}>
+          {d.name}
+          <br />
+          pack: <strong>{d.pack}</strong>
+          {d.isPrimaryStandardPack ? " · 標準優先" : " · 第二套"}
+          <br />
+          心拍:{" "}
+          {d.lastHeartbeatAt
+            ? new Date(d.lastHeartbeatAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
+            : "—"}
+          {d.effectivelyOffline ? " · 実質オフライン" : ""}
+        </div>
+        <div className="row">
+          <button className="btn secondary" type="button" onClick={() => heartbeat(d.id)}>
+            ハートビート
+          </button>
+        </div>
+        <div className="row">
+          <button className="btn" type="button" disabled={busy} onClick={() => simulate(d.id, "online")}>
+            オンライン
+          </button>
+          <button className="btn ghost" type="button" disabled={busy} onClick={() => simulate(d.id, "offline")}>
+            オフライン
+          </button>
+          {isPrinter(d.type) ? (
+            <button
+              className="btn danger"
+              type="button"
+              disabled={busy}
+              onClick={() => simulate(d.id, "out_of_paper")}
+            >
+              用紙切れ
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="stack">
@@ -145,82 +283,66 @@ export function DevicesClient() {
         <div>
           <strong>HARDWARE_MODE</strong>: <span className="badge open">{mode}</span>
           <div className="muted" style={{ marginTop: 4, fontSize: "0.9rem" }}>
-            シミュレータで T1 / 厨屏 / プリンタをデモ。純 Web はハード無しでも動作します。
+            標準包（T1 / 厨屏 / プリンタ）+ 第二套（ハンディ / alt 厨屏 / alt サーマル）。デフォルト印刷は標準包優先。
           </div>
         </div>
-        <div className="row">
+        <div className="row" style={{ flexWrap: "wrap" }}>
           <a className="btn secondary" href="/pos?device=t1">
             T1 画面
+          </a>
+          <a className="btn secondary" href="/staff">
+            ハンディ /staff
           </a>
           <a className="btn secondary" href="/kitchen?device=display">
             厨屏フルスクリーン
           </a>
-          <button className="btn" type="button" disabled={busy} onClick={registerDefaults}>
-            三件套を登録
+          <button
+            className="btn"
+            type="button"
+            disabled={busy}
+            onClick={() => registerPack(STANDARD_PACK, "標準ハードウェア包")}
+          >
+            標準三件套を登録
+          </button>
+          <button
+            className="btn secondary"
+            type="button"
+            disabled={busy}
+            onClick={() => registerPack(ALT_PACK, "第二套ハードウェア包")}
+          >
+            第二套を登録
+          </button>
+          <button className="btn ghost" type="button" disabled={busy} onClick={() => void printViaAlt()}>
+            alt で再印刷デモ
           </button>
         </div>
       </div>
 
       {msg ? <div className="card">{msg}</div> : null}
 
-      {printer?.printError ? (
+      {printerError ? (
         <div
           className="card"
           style={{ background: "#fdecea", borderColor: "var(--danger)", color: "#c62828" }}
         >
-          <strong>プリンタ障害:</strong> {printer.printError}
+          <strong>プリンタ障害:</strong> {printerError}
         </div>
       ) : null}
 
+      <h3>標準包（Q1 / isPrimaryStandardPack）</h3>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
-        {devices.map((d) => (
-          <div key={d.id} className="card stack">
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <strong>
-                {TYPE_LABEL[d.type]} · {d.code}
-              </strong>
-              <span className="badge" style={statusStyle(d.status)}>
-                {STATUS_LABEL[d.status]}
-              </span>
-            </div>
-            <div className="muted" style={{ fontSize: "0.85rem" }}>
-              {d.name}
-              <br />
-              心拍:{" "}
-              {d.lastHeartbeatAt
-                ? new Date(d.lastHeartbeatAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
-                : "—"}
-              {d.effectivelyOffline ? " · 実質オフライン" : ""}
-            </div>
-            <div className="row">
-              <button className="btn secondary" type="button" onClick={() => heartbeat(d.id)}>
-                ハートビート
-              </button>
-            </div>
-            <div className="row">
-              <button className="btn" type="button" disabled={busy} onClick={() => simulate(d.id, "online")}>
-                オンライン
-              </button>
-              <button className="btn ghost" type="button" disabled={busy} onClick={() => simulate(d.id, "offline")}>
-                オフライン
-              </button>
-              {d.type === "printer" ? (
-                <button
-                  className="btn danger"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => simulate(d.id, "out_of_paper")}
-                >
-                  用紙切れ
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ))}
+        {standardDevices.map(renderDeviceCard)}
       </div>
+      {standardDevices.length === 0 ? (
+        <div className="card muted">標準包がありません。「標準三件套を登録」または Seed してください。</div>
+      ) : null}
 
-      {devices.length === 0 ? (
-        <div className="card muted">端末がありません。Seed するか「三件套を登録」を押してください。</div>
+      <h3>第二套（alt / 日本市場向けシミュレータ）</h3>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+        {altDevices.map(renderDeviceCard)}
+      </div>
+      {altDevices.length === 0 ? (
+        <div className="card muted">第二套がありません。「第二套を登録」または Seed してください。</div>
       ) : null}
 
       <h3>印刷ジョブ（80mm プレビュー）</h3>
@@ -249,6 +371,11 @@ export function DevicesClient() {
                   {new Date(j.createdAt).toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo" })}
                 </span>
               </div>
+              {j.device ? (
+                <div className="muted" style={{ fontSize: "0.8rem" }}>
+                  → {j.device.code} {j.device.name}
+                </div>
+              ) : null}
               {j.errorMessage ? (
                 <div style={{ color: "var(--danger)", fontSize: "0.9rem" }}>{j.errorMessage}</div>
               ) : null}
