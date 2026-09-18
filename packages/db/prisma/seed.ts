@@ -6,6 +6,8 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  await prisma.printJob.deleteMany();
+  await prisma.device.deleteMany();
   await prisma.waitlistTicket.deleteMany();
   await prisma.reservation.deleteMany();
   await prisma.payment.deleteMany();
@@ -330,6 +332,40 @@ async function main() {
     ],
   });
 
+
+  // AUT-69: standard hardware pack (T1 + kitchen display + printer)
+  await prisma.device.createMany({
+    data: [
+      {
+        storeId: store.id,
+        type: "t1_pos",
+        name: "SHINSO T1",
+        code: "T1-01",
+        status: "online",
+        lastHeartbeatAt: new Date(),
+        meta: { model: "T1", touch: true },
+      },
+      {
+        storeId: store.id,
+        type: "kitchen_display",
+        name: "厨房ディスプレイ",
+        code: "KDS-01",
+        status: "online",
+        lastHeartbeatAt: new Date(),
+        meta: { fullscreen: true },
+      },
+      {
+        storeId: store.id,
+        type: "printer",
+        name: "80mm レシートプリンタ",
+        code: "PRT-01",
+        status: "online",
+        lastHeartbeatAt: new Date(),
+        meta: { paperWidthMm: 80, locale: "ja-JP" },
+      },
+    ],
+  });
+
   const reservationCount = await prisma.reservation.count({ where: { storeId: store.id } });
   const waitlistCount = await prisma.waitlistTicket.count({ where: { storeId: store.id } });
   const tableCount = await prisma.table.count({ where: { area: { storeId: store.id } } });
@@ -338,7 +374,9 @@ async function main() {
   });
   console.log(`Store: ${store.name}`);
   console.log(`Tables: ${tableCount}, Menu items: ${itemCount}`);
+  const deviceCount = await prisma.device.count({ where: { storeId: store.id } });
   console.log(`Reservations (tonight): ${reservationCount}, Waitlist: ${waitlistCount}`);
+  console.log(`Devices: ${deviceCount} (T1-01 / KDS-01 / PRT-01)`);
   console.log("Accounts: owner@ / floor@ / kitchen@ shinso.demo  password: demo1234");
 }
 

@@ -10,6 +10,7 @@ import {
   sumCheckItems,
   type PayInput,
 } from "@shinso/api";
+import { tryPrintAfterPay } from "@/lib/hardware";
 
 export async function startCheckPayment(opts: {
   checkId: string;
@@ -104,7 +105,21 @@ export async function startCheckPayment(opts: {
       const paid = await tx.check.findUnique({ where: { id: check.id } });
       return { payment, check: paid };
     });
-    return { ok: true as const, status: 200, data: { ...result, mode, clientSecret: null } };
+    const print = await tryPrintAfterPay(opts.storeId, check.id);
+    return {
+      ok: true as const,
+      status: 200,
+      data: {
+        ...result,
+        mode,
+        clientSecret: null,
+        printJob: print?.ok ? print.data.job : null,
+        printError:
+          print?.ok && print.data.job.status === "failed"
+            ? print.data.job.errorMessage
+            : null,
+      },
+    };
   }
 
   const payment = await prisma.payment.create({

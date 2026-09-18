@@ -135,3 +135,78 @@ button, input, select, textarea { font: inherit; }
   .sidebar nav { flex-direction: row; }
   .kitchen-board { grid-template-columns: 1fr 1fr; }
 }
+
+/* AUT-70: T1 touch POS */
+.t1-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.t1-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 1.1rem;
+  background: #0b2f1f;
+  color: #dff7ea;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.t1-main {
+  padding: 0.75rem;
+  flex: 1;
+}
+.t1-main .btn,
+.t1-main .table-tile,
+.t1-main .card button {
+  min-height: 52px;
+  font-size: 1.05rem;
+}
+.t1-main .table-tile {
+  min-height: 120px;
+  touch-action: manipulation;
+}
+.t1-main .sidebar { display: none; }
+
+/* AUT-70: kitchen display fullscreen */
+.kds-fullscreen {
+  min-height: 100vh;
+  background: #111;
+  color: #f5f5f5;
+  padding: 0.75rem;
+}
+.kds-fullscreen .card {
+  background: #1c1c1c;
+  border-color: #333;
+  color: #f5f5f5;
+}
+.kds-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem 1rem;
+  font-size: 1.35rem;
+}
+.kds-board {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+.kds-overdue {
+  outline: 3px solid #e53935;
+  box-shadow: 0 0 0 4px rgba(229, 57, 53, 0.25);
+}
+.receipt-80mm {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  width: 80mm;
+  max-width: 100%;
+  white-space: pre-wrap;
+  background: #fff;
+  border: 1px dashed #999;
+  padding: 12px;
+  margin: 0;
+  color: #111;
+}

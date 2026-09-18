@@ -6,3 +6,4 @@ export * from "./reservations";
 export * from "./waitlist";
 export * from "./notify";
 export * from "./payments";
+export * from "./hardware";

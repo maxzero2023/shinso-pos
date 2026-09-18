@@ -63,7 +63,7 @@ type PendingPayment = {
   providerPayload?: Record<string, unknown>;
 };
 
-export function PosClient() {
+export function PosClient({ deviceMode }: { deviceMode?: "t1" } = {}) {
   const [tables, setTables] = useState<TableRow[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -74,6 +74,7 @@ export function PosClient() {
   const [busy, setBusy] = useState(false);
   const [payConfig, setPayConfig] = useState<PayConfig | null>(null);
   const [pending, setPending] = useState<PendingPayment | null>(null);
+  const [hwError, setHwError] = useState("");
 
   const selectedTable = useMemo(
     () => tables.find((t) => t.id === selectedTableId) ?? null,
@@ -272,7 +273,12 @@ export function PosClient() {
           : "精算";
 
   return (
-    <div className="stack">
+    <div className={deviceMode === "t1" ? "stack t1-pos" : "stack"}>
+      {hwError ? (
+        <div className="card" style={{ background: "#fdecea", color: "#c62828" }}>
+          ハードウェア: {hwError}
+        </div>
+      ) : null}
       {msg ? (
         <div className="card" style={{ borderColor: "var(--brand)" }}>
           {msg}

@@ -249,3 +249,46 @@ pnpm test
 ## 明确不做（本 MVP）
 
 库存、完整 CRM、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝（Q2）。LINE 本单仅为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay 密钥（无密钥时用标注的模拟器）。
+
+
+## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）
+
+`HARDWARE_MODE=simulator|live`（デフォルト **simulator**）。実機が無くてもシミュレータで三件套をデモできます。純 Web（ハード無し）も従来どおり動作します。
+
+| モード | 挙動 |
+|--------|------|
+| `simulator` | 登録デバイスの心拍・状態に応じて印刷成功/失敗。オフライン・用紙切れを UI で再現 |
+| `live` | 実機ブリッジ未接続時は失敗メッセージ（本ボックスには物理 T1/プリンタ無し） |
+
+### Seed デバイス
+
+`pnpm db:seed` で以下を登録：
+
+| code | type | 用途 |
+|------|------|------|
+| T1-01 | t1_pos | FOH タッチ POS |
+| KDS-01 | kitchen_display | 厨房フルスクリーン |
+| PRT-01 | printer | 80mm レシート / 厨打 |
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev` → ログイン `floor@shinso.demo` / `demo1234`
+2. **/devices** — シミュレータ：心拍、オフライン/用紙切れ切替、80mm 日文プレビュー
+3. **/pos?device=t1** — T1 タッチ向けレイアウトで開台→点餐→送厨
+4. **/kitchen?device=display** — 厨屏フルスクリーン（大字・超過ハイライト）
+5. 送厨 → 厨打 PrintJob；精算 → レシート PrintJob（同一 Check / KitchenTicket、影オーダー無し）
+6. プリンタを「用紙切れ」→ 再印刷で可視エラー → 「オンライン」でリトライ成功
+7. ワンショット: `pnpm demo:hardware`
+
+### API
+
+- `GET/POST /api/devices` · `GET/PATCH /api/devices/:id` · `POST .../heartbeat` · `POST .../simulate`
+- `GET/POST /api/print-jobs` · `POST /api/print-jobs/:id/retry`
+- `GET /api/hardware/config`
+
+### 不変条件
+
+- 印刷・厨显は同一 Check / KitchenTicket を消費（影オーダー禁止）
+- paid Check のレシート再印刷は可；新規 fire は不可
+- デバイスは Store 所属（日本単店）
+
