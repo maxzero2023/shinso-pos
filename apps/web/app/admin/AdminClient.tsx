@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 type Area = {
   id: string;
   name: string;
@@ -28,6 +30,11 @@ export function AdminClient({
       <div className="card">
         <strong>店舗</strong>
         <div>{storeName}</div>
+        <div style={{ marginTop: "0.75rem" }}>
+          <Link className="btn secondary" href="/admin/reports">
+            経営レポート →
+          </Link>
+        </div>
       </div>
 
       <div className="card stack">
