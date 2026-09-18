@@ -6,6 +6,8 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  await prisma.waitlistTicket.deleteMany();
+  await prisma.reservation.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.kitchenTicketLine.deleteMany();
   await prisma.kitchenTicket.deleteMany();
@@ -233,12 +235,110 @@ async function main() {
     }
   }
 
+  // AUT-46: tonight reservations + waitlist (Asia/Tokyo)
+  const tables = await prisma.table.findMany({
+    where: { area: { storeId: store.id } },
+    orderBy: [{ areaId: "asc" }, { sortOrder: "asc" }],
+  });
+  const t1 = tables.find((t) => t.code === "T1");
+  const t2 = tables.find((t) => t.code === "T2");
+  const t4 = tables.find((t) => t.code === "T4");
+  const p1 = tables.find((t) => t.code === "P1");
+
+  const todayYmd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+  const atTokyo = (hm: string) => new Date(`${todayYmd}T${hm}:00+09:00`);
+
+  await prisma.reservation.createMany({
+    data: [
+      {
+        storeId: store.id,
+        tableId: t1?.id,
+        partySize: 4,
+        startAt: atTokyo("19:00"),
+        endAt: atTokyo("20:30"),
+        status: "confirmed",
+        guestName: "山田太郎",
+        guestPhone: "090-1111-2222",
+        note: "窓側希望",
+      },
+      {
+        storeId: store.id,
+        tableId: t2?.id,
+        partySize: 2,
+        startAt: atTokyo("18:30"),
+        endAt: atTokyo("20:00"),
+        status: "hold",
+        guestName: "佐藤花子",
+        guestPhone: "080-3333-4444",
+        note: "仮予約（hold ≠ open Check）",
+      },
+      {
+        storeId: store.id,
+        tableId: t4?.id,
+        partySize: 6,
+        startAt: atTokyo("20:00"),
+        endAt: atTokyo("21:30"),
+        status: "confirmed",
+        guestName: "鈴木一郎",
+        guestLineId: "U_demo_suzuki",
+      },
+      {
+        storeId: store.id,
+        tableId: p1?.id,
+        partySize: 8,
+        startAt: atTokyo("19:30"),
+        endAt: atTokyo("21:30"),
+        status: "confirmed",
+        guestName: "田中宴会",
+        note: "個室・誕生日",
+      },
+    ],
+  });
+
+  await prisma.waitlistTicket.createMany({
+    data: [
+      {
+        storeId: store.id,
+        partySize: 3,
+        ticketNo: 1,
+        status: "waiting",
+        guestName: "候位・A組",
+        guestPhone: "070-5555-6666",
+      },
+      {
+        storeId: store.id,
+        partySize: 2,
+        ticketNo: 2,
+        status: "waiting",
+        guestName: "候位・B組",
+      },
+      {
+        storeId: store.id,
+        partySize: 4,
+        ticketNo: 3,
+        status: "called",
+        guestName: "候位・C組",
+        calledAt: new Date(),
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      },
+    ],
+  });
+
+  const reservationCount = await prisma.reservation.count({ where: { storeId: store.id } });
+  const waitlistCount = await prisma.waitlistTicket.count({ where: { storeId: store.id } });
   const tableCount = await prisma.table.count({ where: { area: { storeId: store.id } } });
   const itemCount = await prisma.menuItem.count({
     where: { category: { storeId: store.id } },
   });
   console.log(`Store: ${store.name}`);
   console.log(`Tables: ${tableCount}, Menu items: ${itemCount}`);
+  console.log(`Reservations (tonight): ${reservationCount}, Waitlist: ${waitlistCount}`);
   console.log("Accounts: owner@ / floor@ / kitchen@ shinso.demo  password: demo1234");
 }
 
