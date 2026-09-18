@@ -7,6 +7,8 @@ async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
   // AUT-40 / AUT-109: ExpenseEntry + PurchaseOrder-related cleanup (re-seed safe)
+  await prisma.externalOrderLine.deleteMany();
+  await prisma.externalOrder.deleteMany();
   await prisma.expenseEntry.deleteMany();
   await prisma.purchaseOrderAudit.deleteMany();
   await prisma.purchaseOrderLine.deleteMany();
@@ -144,6 +146,19 @@ async function main() {
     { areaId: privateArea.id, code: "P3", seats: 10, sortOrder: 3 },
   ];
   await prisma.table.createMany({ data: tableDefs });
+
+  // AUT-43: virtual delivery slots (semi-auto intake)
+  const deliveryArea = await prisma.area.create({
+    data: { storeId: store.id, name: "配達", sortOrder: 99 },
+  });
+  await prisma.table.createMany({
+    data: Array.from({ length: 5 }, (_, i) => ({
+      areaId: deliveryArea.id,
+      code: `DEL-${String(i + 1).padStart(2, "0")}`,
+      seats: 1,
+      sortOrder: i + 1,
+    })),
+  });
 
   const cat = async (name: string, nameZh: string, nameEn: string, sortOrder: number) =>
     prisma.menuCategory.create({
@@ -1213,7 +1228,89 @@ async function main() {
   });
   console.log(`Inventory Store B: ingredient 鶏もも肉 (isolated, onHand 5000)`);
 
-    const memberCount = await prisma.member.count({ where: { storeId: store.id } });
+  // AUT-43 / AUT-120: pending demo delivery order (NOT confirmed — no Check/KDS yet)
+  const delEdamame = await prisma.menuItem.findFirst({
+    where: { name: "枝豆", category: { storeId: store.id } },
+  });
+  const delBeer = await prisma.menuItem.findFirst({
+    where: { name: "生ビール", category: { storeId: store.id } },
+  });
+  const delKaraage = await prisma.menuItem.findFirst({
+    where: { name: "唐揚げ定食", category: { storeId: store.id } },
+  });
+  if (delEdamame && delBeer && delKaraage) {
+    await prisma.externalOrder.create({
+      data: {
+        storeId: store.id,
+        channel: "demaecan",
+        externalId: "SEED-DEMAE-001",
+        status: "pending",
+        customerName: "配達デモ花子",
+        customerPhone: "090-1111-0043",
+        note: "seed 確認待ちデモ（半自動：未確認）",
+        rawPayload: { source: "seed", channel: "demaecan" },
+        lines: {
+          create: [
+            {
+              externalItemName: "唐揚げ定食",
+              externalItemCode: "DEM-KARA",
+              qty: 1,
+              unitPriceYen: 980,
+              menuItemId: delKaraage.id,
+              sortOrder: 1,
+            },
+            {
+              externalItemName: "生ビール",
+              externalItemCode: "DEM-BEER",
+              qty: 2,
+              unitPriceYen: 580,
+              menuItemId: delBeer.id,
+              sortOrder: 2,
+            },
+            {
+              externalItemName: "枝豆",
+              externalItemCode: "DEM-EDA",
+              qty: 1,
+              unitPriceYen: 480,
+              menuItemId: delEdamame.id,
+              sortOrder: 3,
+            },
+          ],
+        },
+      },
+    });
+    // Also a pending order with one unmapped line for mapping-failure demo
+    await prisma.externalOrder.create({
+      data: {
+        storeId: store.id,
+        channel: "uber_eats_jp",
+        externalId: "SEED-UE-BADMAP",
+        status: "pending",
+        customerName: "誤マップデモ客",
+        note: "1行未マッピング — 確認するとエラー",
+        lines: {
+          create: [
+            {
+              externalItemName: "謎の限定バーガー",
+              qty: 1,
+              unitPriceYen: 1200,
+              menuItemId: null,
+              sortOrder: 1,
+            },
+            {
+              externalItemName: "生ビール",
+              qty: 1,
+              unitPriceYen: 580,
+              menuItemId: delBeer.id,
+              sortOrder: 2,
+            },
+          ],
+        },
+      },
+    });
+  }
+
+      const memberCount = await prisma.member.count({ where: { storeId: store.id } });
   const tplCount = await prisma.couponTemplate.count({ where: { storeId: store.id } });
   console.log(`CRM members: ${memberCount}, coupon templates: ${tplCount}, demo coupon CPDEMO01`);
 
@@ -1223,8 +1320,12 @@ async function main() {
   const itemCount = await prisma.menuItem.count({
     where: { category: { storeId: store.id } },
   });
+  const extPending = await prisma.externalOrder.count({
+    where: { storeId: store.id, status: "pending" },
+  });
   console.log(`Store: ${store.name}`);
   console.log(`Tables: ${tableCount}, Menu items: ${itemCount}`);
+  console.log(`ExternalOrder pending (AUT-43): ${extPending}`);
   const deviceCount = await prisma.device.count({ where: { storeId: store.id } });
   console.log(`Reservations (tonight): ${reservationCount}, Waitlist: ${waitlistCount}`);
   const shiftCount = await prisma.shift.count({ where: { storeId: store.id, status: "open" } });
