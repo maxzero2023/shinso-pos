@@ -30,9 +30,12 @@ export function AdminClient({
       <div className="card">
         <strong>店舗</strong>
         <div>{storeName}</div>
-        <div style={{ marginTop: "0.75rem" }}>
+        <div style={{ marginTop: "0.75rem" }} className="row">
           <Link className="btn secondary" href="/admin/reports">
             経営レポート →
+          </Link>
+          <Link className="btn secondary" href="/admin/crm">
+            CRM / LINE →
           </Link>
         </div>
       </div>

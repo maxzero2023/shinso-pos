@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { tryAwardPointsForPaidCheck } from "../crm/points";
 
 type Tx = Omit<
   PrismaClient,
@@ -22,6 +23,7 @@ export async function settleSuccessfulPayment(
 
   // Payment already succeeded and check already paid → no-op
   if (payment.status === "succeeded" && check.status === "paid") {
+    await tryAwardPointsForPaidCheck(db, check.id);
     return { alreadySettled: true, checkId: payment.checkId };
   }
 
@@ -64,6 +66,9 @@ export async function settleSuccessfulPayment(
     where: { id: check.tableId },
     data: { status: "free" },
   });
+
+  // AUT-33: points only on paid Check (idempotent PointAward)
+  await tryAwardPointsForPaidCheck(db, check.id);
 
   return { alreadySettled: false, checkId: payment.checkId };
 }

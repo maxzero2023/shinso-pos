@@ -65,6 +65,13 @@ type PendingPayment = {
   providerPayload?: Record<string, unknown>;
 };
 
+type CrmMember = {
+  id: string;
+  lineUserId: string;
+  displayName: string | null;
+  points: number;
+};
+
 export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; role?: string } = {}) {
   const [tables, setTables] = useState<TableRow[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
@@ -77,6 +84,10 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
   const [payConfig, setPayConfig] = useState<PayConfig | null>(null);
   const [pending, setPending] = useState<PendingPayment | null>(null);
   const [hwError, setHwError] = useState("");
+  const [members, setMembers] = useState<CrmMember[]>([]);
+  const [payMemberId, setPayMemberId] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [crmMsg, setCrmMsg] = useState("");
 
   const selectedTable = useMemo(
     () => tables.find((t) => t.id === selectedTableId) ?? null,
@@ -103,6 +114,10 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
     fetch("/api/payments/config")
       .then((r) => r.json())
       .then((d) => setPayConfig(d))
+      .catch(() => null);
+    fetch("/api/crm/members")
+      .then((r) => r.json())
+      .then((d) => setMembers(d.members ?? []))
       .catch(() => null);
     const t = setInterval(refreshTables, 4000);
     return () => clearInterval(t);
@@ -230,6 +245,7 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
         method: payMethod,
         amountYen: check.totalYen,
         idempotencyKey,
+        ...(payMemberId ? { memberId: payMemberId } : {}),
       }),
     });
     const data = await res.json();
@@ -266,6 +282,29 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
         ? "カード決済を確定してください（処理中は伝票 open）"
         : "PayPay 支払いを完了してください（処理中は伝票 open）"
     );
+  }
+
+
+  async function redeemCoupon() {
+    if (!couponCode.trim()) return;
+    setBusy(true);
+    setCrmMsg("");
+    const res = await fetch("/api/crm/coupons/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: couponCode.trim(),
+        checkId: check?.id ?? null,
+      }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (res.ok) {
+      setCrmMsg(`核销OK: ${data.coupon.code}（${data.coupon.template.name}）`);
+      setCouponCode("");
+    } else {
+      setCrmMsg(data.error ?? "核销失敗");
+    }
   }
 
   async function makeQr() {
@@ -463,6 +502,40 @@ export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; r
                   QR発行
                 </button>
               </div>
+              <div className="card stack" style={{ borderColor: "var(--brand)" }}>
+                <strong>CRM（会員・クーポン）</strong>
+                <div className="row">
+                  <select
+                    className="input"
+                    style={{ width: "auto", minWidth: 160 }}
+                    value={payMemberId}
+                    onChange={(e) => setPayMemberId(e.target.value)}
+                  >
+                    <option value="">会員なし（集点なし）</option>
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {(m.displayName ?? m.lineUserId) + ` (${m.points}pt)`}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="muted" style={{ fontSize: "0.8rem" }}>
+                    精算時に集点（¥100=1pt）
+                  </span>
+                </div>
+                <div className="row">
+                  <input
+                    className="input"
+                    placeholder="クーポンコード"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value)}
+                  />
+                  <button className="btn secondary" disabled={busy} onClick={redeemCoupon}>
+                    核销
+                  </button>
+                </div>
+                {crmMsg ? <div className="muted">{crmMsg}</div> : null}
+              </div>
+
               {qrUrl ? (
                 <div className="card" style={{ background: "var(--brand-soft)" }}>
                   <div className="muted">ゲストQR</div>

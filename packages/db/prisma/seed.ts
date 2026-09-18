@@ -6,6 +6,10 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  await prisma.pointAward.deleteMany();
+  await prisma.couponIssue.deleteMany();
+  await prisma.couponTemplate.deleteMany();
+  await prisma.member.deleteMany();
   await prisma.checkAuditLog.deleteMany();
   await prisma.printJob.deleteMany();
   await prisma.device.deleteMany();
@@ -559,6 +563,93 @@ async function main() {
     where: { status: "paid", table: { area: { storeId: store.id } } },
   });
   console.log(`Paid checks (reports seed): ${paidCheckCount} across hours 12/14/18/20/21`);
+
+
+  // AUT-33 / AUT-79–81: LINE CRM sandbox
+  const memberA = await prisma.member.create({
+    data: {
+      storeId: store.id,
+      lineUserId: "sim_demo_taro",
+      displayName: "デモ太郎",
+      points: 0,
+    },
+  });
+  const memberB = await prisma.member.create({
+    data: {
+      storeId: store.id,
+      lineUserId: "sim_demo_hanako",
+      displayName: "デモ花子",
+      points: 50,
+    },
+  });
+
+  const tplDrink = await prisma.couponTemplate.create({
+    data: {
+      storeId: store.id,
+      name: "ドリンク1杯無料",
+      description: "ソフトドリンクまたは生ビール1杯相当（¥500）",
+      discountYen: 500,
+      pointsCost: 0,
+      active: true,
+    },
+  });
+  const tplDessert = await prisma.couponTemplate.create({
+    data: {
+      storeId: store.id,
+      name: "デザート割引",
+      description: "わらび餅などデザート ¥300 OFF",
+      discountYen: 300,
+      pointsCost: 30,
+      active: true,
+    },
+  });
+
+  const couponIssued = await prisma.couponIssue.create({
+    data: {
+      storeId: store.id,
+      templateId: tplDrink.id,
+      memberId: memberA.id,
+      code: "CPDEMO01",
+      status: "issued",
+    },
+  });
+  void couponIssued;
+  void memberB;
+  void tplDessert;
+
+  // Attach memberA to one paid seed check + award points (idempotent path)
+  const paidForPoints = await prisma.check.findFirst({
+    where: { status: "paid", table: { area: { storeId: store.id } } },
+    include: { payments: { where: { status: "succeeded" } } },
+    orderBy: { closedAt: "asc" },
+  });
+  if (paidForPoints) {
+    await prisma.check.update({
+      where: { id: paidForPoints.id },
+      data: { memberId: memberA.id },
+    });
+    const amountYen = paidForPoints.payments.reduce((s, p) => s + p.amountYen, 0);
+    const pts = Math.floor(amountYen / 100);
+    if (pts > 0) {
+      await prisma.pointAward.create({
+        data: {
+          storeId: store.id,
+          memberId: memberA.id,
+          checkId: paidForPoints.id,
+          points: pts,
+          amountYen,
+        },
+      });
+      await prisma.member.update({
+        where: { id: memberA.id },
+        data: { points: { increment: pts } },
+      });
+    }
+  }
+
+  const memberCount = await prisma.member.count({ where: { storeId: store.id } });
+  const tplCount = await prisma.couponTemplate.count({ where: { storeId: store.id } });
+  console.log(`CRM members: ${memberCount}, coupon templates: ${tplCount}, demo coupon CPDEMO01`);
 
   const reservationCount = await prisma.reservation.count({ where: { storeId: store.id } });
   const waitlistCount = await prisma.waitlistTicket.count({ where: { storeId: store.id } });

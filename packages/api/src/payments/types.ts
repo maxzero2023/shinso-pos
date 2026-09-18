@@ -10,6 +10,9 @@ export const paySchema = z.object({
   idempotencyKey: z.string().min(8).max(128).optional(),
   /** Demo-only: force PayPay simulator outcome when PAYMENT_MODE=sandbox without merchant keys. */
   simulateOutcome: z.enum(["succeeded", "failed", "canceled"]).optional(),
+  /** AUT-33: attach CRM member before settle for points. */
+  memberId: z.string().min(1).optional(),
+  lineUserId: z.string().min(1).max(128).optional(),
 });
 
 export type PayInput = z.infer<typeof paySchema>;

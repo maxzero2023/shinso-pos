@@ -9,6 +9,7 @@ const links: Array<{ href: string; label: string; roles?: SessionPayload["role"]
   { href: "/devices", label: "デバイス", roles: ["owner", "floor"] },
   { href: "/ops", label: "運営", roles: ["owner", "floor"] },
   { href: "/admin/reports", label: "レポート", roles: ["owner", "floor"] },
+  { href: "/admin/crm", label: "CRM", roles: ["owner", "floor"] },
   { href: "/admin", label: "管理", roles: ["owner"] },
 ];
 

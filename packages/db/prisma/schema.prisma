@@ -81,6 +81,10 @@ model Store {
   businessDays  BusinessDay[]
   shifts        Shift[]
   checkAudits   CheckAuditLog[]
+  members         Member[]
+  couponTemplates CouponTemplate[]
+  couponIssues    CouponIssue[]
+  pointAwards     PointAward[]
 }
 
 model Area {
@@ -234,10 +238,15 @@ model Check {
   payments       Payment[]
   printJobs      PrintJob[]
   auditLogs      CheckAuditLog[]
+  /// Optional CRM member for points on paid settle (AUT-33)
+  memberId       String?
+
   reservation    Reservation?
   waitlistTicket WaitlistTicket?
+  member         Member?          @relation(fields: [memberId], references: [id], onDelete: SetNull)
 
   @@index([tableId])
+  @@index([memberId])
   @@index([status])
   @@index([tableId, status])
   @@index([businessDayId])
@@ -559,4 +568,88 @@ model CheckAuditLog {
   @@index([checkId, createdAt])
   @@index([staffId])
   @@index([action])
+}
+
+enum CouponIssueStatus {
+  issued
+  redeemed
+}
+
+/// LINE-bound member per store. AUT-33 / AUT-79.
+model Member {
+  id          String   @id @default(cuid())
+  storeId     String
+  lineUserId  String
+  displayName String?
+  points      Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store       Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  coupons     CouponIssue[]
+  pointAwards PointAward[]
+  checks      Check[]
+
+  @@unique([storeId, lineUserId])
+  @@index([storeId])
+}
+
+model CouponTemplate {
+  id          String   @id @default(cuid())
+  storeId     String
+  name        String
+  description String?
+  /// Flat discount in JPY when redeemed (MVP simple coupon).
+  discountYen Int      @default(0)
+  /// Points spent to issue (0 = campaign / free issue).
+  pointsCost  Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store  Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  issues CouponIssue[]
+
+  @@index([storeId, active])
+}
+
+model CouponIssue {
+  id                String            @id @default(cuid())
+  storeId           String
+  templateId        String
+  memberId          String
+  code              String
+  status            CouponIssueStatus @default(issued)
+  issuedAt          DateTime          @default(now())
+  redeemedAt        DateTime?
+  redeemedByStaffId String?
+  checkId           String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  store    Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  template CouponTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  member   Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, code])
+  @@index([memberId, status])
+  @@index([storeId, status])
+  @@index([checkId])
+}
+
+/// One points grant per paid Check (idempotent). AUT-33 / AUT-80.
+model PointAward {
+  id        String   @id @default(cuid())
+  storeId   String
+  memberId  String
+  checkId   String   @unique
+  points    Int
+  amountYen Int
+  createdAt DateTime @default(now())
+
+  store  Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, memberId])
+  @@index([memberId])
 }
