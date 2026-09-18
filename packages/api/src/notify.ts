@@ -8,7 +8,10 @@ export const notifyEventTypes = [
   "reservation.cancelled",
   "waitlist.joined",
   "waitlist.called",
+  "waitlist.almost_called",
   "waitlist.seated",
+  "waitlist.skipped",
+  "waitlist.recalled",
 ] as const;
 
 export type NotifyEventType = (typeof notifyEventTypes)[number];

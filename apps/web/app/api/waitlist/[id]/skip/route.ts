@@ -1,5 +1,4 @@
 import { prisma } from "@shinso/db";
-import { WAITLIST_CALL_TIMEOUT_MINUTES } from "@shinso/api";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
 import {
@@ -10,6 +9,7 @@ import {
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/** 过号: waiting|called → skipped. Optional LINE notice when bound. */
 export async function POST(_req: Request, ctx: Ctx) {
   const session = await requireSession(["owner", "floor"]);
   if (isResponse(session)) return session;
@@ -21,34 +21,28 @@ export async function POST(_req: Request, ctx: Ctx) {
   });
   if (!existing) return error("候位チケットが見つかりません", 404);
   if (existing.status !== "waiting" && existing.status !== "called") {
-    return error(`ステータス ${existing.status} は呼べません（過号は /recall を使用）`, 409);
+    return error(`ステータス ${existing.status} は過号にできません`, 409);
   }
 
-  const now = new Date();
-  const expiresAt = new Date(now.getTime() + WAITLIST_CALL_TIMEOUT_MINUTES * 60_000);
   const fromStatus = existing.status;
-
+  const now = new Date();
   const ticket = await prisma.waitlistTicket.update({
     where: { id },
-    data: { status: "called", calledAt: now, expiresAt },
+    data: { status: "skipped", skippedAt: now, expiresAt: null },
     include: { member: { select: { id: true, lineUserId: true, displayName: true } } },
   });
 
-  const push = await pushWaitlistLine(ticket, "waitlist.called", {
-    meta: { expiresAt: expiresAt.toISOString() },
-  });
+  const push = await pushWaitlistLine(ticket, "waitlist.skipped");
 
   await writeWaitlistAudit({
     storeId: session.storeId,
     ticketId: ticket.id,
     staffId: session.staffId,
-    action: "call",
+    action: "skip",
     fromStatus,
-    toStatus: "called",
-    summary: push.pushed
-      ? `呼出 #${ticket.ticketNo} LINE → ${push.to}`
-      : `呼出 #${ticket.ticketNo}（LINE 未連携・プッシュなし）`,
-    detail: { pushed: push.pushed, to: push.to ?? null, reason: push.reason },
+    toStatus: "skipped",
+    summary: `過号 #${ticket.ticketNo}`,
+    detail: { pushed: push.pushed, to: push.to ?? null },
   });
 
   await maybeNotifyAlmostCalled(session.storeId);

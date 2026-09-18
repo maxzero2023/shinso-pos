@@ -3,13 +3,13 @@ import { WAITLIST_CALL_TIMEOUT_MINUTES } from "@shinso/api";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
 import {
-  maybeNotifyAlmostCalled,
   pushWaitlistLine,
   writeWaitlistAudit,
 } from "@/lib/waitlist-notify";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/** 重叫: skipped → called with audit + LINE if bound. */
 export async function POST(_req: Request, ctx: Ctx) {
   const session = await requireSession(["owner", "floor"]);
   if (isResponse(session)) return session;
@@ -20,38 +20,40 @@ export async function POST(_req: Request, ctx: Ctx) {
     include: { member: { select: { id: true, lineUserId: true, displayName: true } } },
   });
   if (!existing) return error("候位チケットが見つかりません", 404);
-  if (existing.status !== "waiting" && existing.status !== "called") {
-    return error(`ステータス ${existing.status} は呼べません（過号は /recall を使用）`, 409);
+  if (existing.status !== "skipped") {
+    return error("過号チケットのみ再呼出できます", 409);
   }
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + WAITLIST_CALL_TIMEOUT_MINUTES * 60_000);
-  const fromStatus = existing.status;
 
   const ticket = await prisma.waitlistTicket.update({
     where: { id },
-    data: { status: "called", calledAt: now, expiresAt },
+    data: {
+      status: "called",
+      calledAt: now,
+      expiresAt,
+      skippedAt: null,
+    },
     include: { member: { select: { id: true, lineUserId: true, displayName: true } } },
   });
 
-  const push = await pushWaitlistLine(ticket, "waitlist.called", {
-    meta: { expiresAt: expiresAt.toISOString() },
+  const push = await pushWaitlistLine(ticket, "waitlist.recalled", {
+    meta: { expiresAt: expiresAt.toISOString(), recall: true },
   });
 
   await writeWaitlistAudit({
     storeId: session.storeId,
     ticketId: ticket.id,
     staffId: session.staffId,
-    action: "call",
-    fromStatus,
+    action: "recall",
+    fromStatus: "skipped",
     toStatus: "called",
     summary: push.pushed
-      ? `呼出 #${ticket.ticketNo} LINE → ${push.to}`
-      : `呼出 #${ticket.ticketNo}（LINE 未連携・プッシュなし）`,
+      ? `再呼出 #${ticket.ticketNo} LINE → ${push.to}`
+      : `再呼出 #${ticket.ticketNo}（LINE 未連携・プッシュなし）`,
     detail: { pushed: push.pushed, to: push.to ?? null, reason: push.reason },
   });
-
-  await maybeNotifyAlmostCalled(session.storeId);
 
   return json({
     ticket: {
