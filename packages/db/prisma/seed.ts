@@ -6,6 +6,9 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  await prisma.bomLine.deleteMany();
+  await prisma.stockLedger.deleteMany();
+  await prisma.ingredient.deleteMany();
   await prisma.ownerLineDeliveryLog.deleteMany();
   await prisma.ownerLineBinding.deleteMany();
   await prisma.pointAward.deleteMany();
@@ -872,6 +875,127 @@ async function main() {
     `Owner LINE: sim_owner_line (daily/weekly ON); yesterday(${yesterdayYmd}) paid checks: ${yPaid}`
   );
 
+
+  // AUT-38 / AUT-98–101: Inventory MVP — ingredients, ledger, BOM (Store A)
+  const ingChicken = await prisma.ingredient.create({
+    data: {
+      storeId: store.id,
+      name: "鶏もも肉",
+      unit: "g",
+      lowStockThreshold: 2000,
+      costYenPerUnit: 2,
+    },
+  });
+  const ingBeer = await prisma.ingredient.create({
+    data: {
+      storeId: store.id,
+      name: "生ビール原液",
+      unit: "ml",
+      lowStockThreshold: 5000,
+      costYenPerUnit: 1,
+    },
+  });
+  const ingEdamame = await prisma.ingredient.create({
+    data: {
+      storeId: store.id,
+      name: "枝豆（冷凍）",
+      unit: "g",
+      lowStockThreshold: 1500,
+      costYenPerUnit: 1,
+    },
+  });
+  const ingSkewer = await prisma.ingredient.create({
+    data: {
+      storeId: store.id,
+      name: "串竹",
+      unit: "pc",
+      lowStockThreshold: 50,
+      costYenPerUnit: 3,
+    },
+  });
+  const ownerStaff = await prisma.staff.findFirst({
+    where: { email: "owner@shinso.demo" },
+  });
+
+  // Sample ledger: inbound then partial outbound (edamame left low for alert demo)
+  await prisma.stockLedger.createMany({
+    data: [
+      {
+        ingredientId: ingChicken.id,
+        qtyDelta: 10000,
+        reason: "inbound",
+        createdById: ownerStaff?.id,
+      },
+      {
+        ingredientId: ingBeer.id,
+        qtyDelta: 20000,
+        reason: "inbound",
+        createdById: ownerStaff?.id,
+      },
+      {
+        ingredientId: ingEdamame.id,
+        qtyDelta: 3000,
+        reason: "inbound",
+        createdById: ownerStaff?.id,
+      },
+      {
+        ingredientId: ingEdamame.id,
+        qtyDelta: -2000,
+        reason: "outbound",
+        createdById: ownerStaff?.id,
+      },
+      {
+        ingredientId: ingSkewer.id,
+        qtyDelta: 200,
+        reason: "inbound",
+        createdById: ownerStaff?.id,
+      },
+    ],
+  });
+  // After seed: edamame onHand=1000 < threshold 1500 → low-stock alert
+
+  const menuByName = Object.fromEntries(
+    (
+      await prisma.menuItem.findMany({
+        where: { category: { storeId: store.id } },
+        select: { id: true, name: true },
+      })
+    ).map((m) => [m.name, m.id])
+  );
+
+  const bomDefs: Array<{ menu: string; ingredientId: string; qty: number }> = [
+    { menu: "もも", ingredientId: ingChicken.id, qty: 40 },
+    { menu: "もも", ingredientId: ingSkewer.id, qty: 1 },
+    { menu: "ねぎま", ingredientId: ingChicken.id, qty: 35 },
+    { menu: "ねぎま", ingredientId: ingSkewer.id, qty: 1 },
+    { menu: "枝豆", ingredientId: ingEdamame.id, qty: 150 },
+    { menu: "生ビール", ingredientId: ingBeer.id, qty: 350 },
+    { menu: "唐揚げ定食", ingredientId: ingChicken.id, qty: 200 },
+  ];
+  for (const b of bomDefs) {
+    const menuItemId = menuByName[b.menu];
+    if (!menuItemId) {
+      console.warn(`BOM skip: menu item not found: ${b.menu}`);
+      continue;
+    }
+    await prisma.bomLine.create({
+      data: {
+        menuItemId,
+        ingredientId: b.ingredientId,
+        qtyPerItem: b.qty,
+      },
+    });
+  }
+
+  const ingCount = await prisma.ingredient.count({ where: { storeId: store.id } });
+  const bomCount = await prisma.bomLine.count({
+    where: { ingredient: { storeId: store.id } },
+  });
+  console.log(
+    `Inventory Store A: ${ingCount} ingredients, ${bomCount} BOM lines; edamame seeded low-stock`
+  );
+
+
   // AUT-37 / AUT-96: Store B minimal isolated menu + tables
   const areaB = await prisma.area.create({
     data: { storeId: storeB.id, name: "テーブルB", sortOrder: 1 },
@@ -932,6 +1056,25 @@ async function main() {
       note: "Store B デモ開班",
     },
   });
+
+  // AUT-38: Store B isolated ingredient + inbound
+  const chickenB = await prisma.ingredient.create({
+    data: {
+      storeId: storeB.id,
+      name: "鶏もも肉",
+      unit: "g",
+      lowStockThreshold: 1000,
+      costYenPerUnit: 2,
+    },
+  });
+  await prisma.stockLedger.create({
+    data: {
+      ingredientId: chickenB.id,
+      qtyDelta: 5000,
+      reason: "inbound",
+    },
+  });
+  console.log(`Inventory Store B: ingredient 鶏もも肉 (isolated, onHand 5000)`);
 
     const memberCount = await prisma.member.count({ where: { storeId: store.id } });
   const tplCount = await prisma.couponTemplate.count({ where: { storeId: store.id } });
