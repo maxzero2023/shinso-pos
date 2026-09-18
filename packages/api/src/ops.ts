@@ -16,11 +16,11 @@ export function tokyoBusinessDate(now: Date = new Date()): Date {
   return new Date(`${s}T00:00:00.000Z`);
 }
 
-export type OpsRole = "owner" | "floor" | "kitchen";
+export type OpsRole = "brand_admin" | "owner" | "manager" | "floor" | "kitchen";
 
-/** Owner acts as 店長/manager for elevated void/edit. */
+/** brand_admin / owner / manager act as elevated for void/edit. */
 export function isManagerRole(role: OpsRole): boolean {
-  return role === "owner";
+  return role === "brand_admin" || role === "owner" || role === "manager";
 }
 
 /**

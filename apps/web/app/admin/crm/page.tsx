@@ -7,7 +7,7 @@ export default async function AdminCrmPage() {
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role === "kitchen") redirect("/kitchen");
-  if (session.role !== "owner" && session.role !== "floor") redirect("/pos");
+  if (!["brand_admin", "owner", "manager", "floor"].includes(session.role)) redirect("/pos");
 
   return (
     <AppShell session={session} title="CRM / LINE 会員">

@@ -32,9 +32,19 @@ async function main() {
   await prisma.area.deleteMany();
   await prisma.staff.deleteMany();
   await prisma.store.deleteMany();
+  await prisma.brand.deleteMany();
+
+  // AUT-37: Brand 1—N Store (Store A = legacy demo, Store B = isolation demo)
+  const brand = await prisma.brand.create({
+    data: { name: "SHINSO Demo" },
+  });
 
   const store = await prisma.store.create({
-    data: { name: "シンソウデモ店", timezone: "Asia/Tokyo" },
+    data: { brandId: brand.id, name: "シンソウデモ店", timezone: "Asia/Tokyo" },
+  });
+
+  const storeB = await prisma.store.create({
+    data: { brandId: brand.id, name: "シンソウデモ店 B", timezone: "Asia/Tokyo" },
   });
 
   const passwordHash = await bcrypt.hash("demo1234", 10);
@@ -42,6 +52,15 @@ async function main() {
     data: [
       {
         storeId: store.id,
+        brandId: brand.id,
+        email: "brandadmin@shinso.demo",
+        name: "ブランド管理者",
+        role: "brand_admin",
+        passwordHash,
+      },
+      {
+        storeId: store.id,
+        brandId: brand.id,
         email: "owner@shinso.demo",
         name: "オーナー太郎",
         role: "owner",
@@ -49,6 +68,15 @@ async function main() {
       },
       {
         storeId: store.id,
+        brandId: brand.id,
+        email: "manager@shinso.demo",
+        name: "店長A",
+        role: "manager",
+        passwordHash,
+      },
+      {
+        storeId: store.id,
+        brandId: brand.id,
         email: "floor@shinso.demo",
         name: "フロア花子",
         role: "floor",
@@ -56,9 +84,26 @@ async function main() {
       },
       {
         storeId: store.id,
+        brandId: brand.id,
         email: "kitchen@shinso.demo",
         name: "キッチン次郎",
         role: "kitchen",
+        passwordHash,
+      },
+      {
+        storeId: storeB.id,
+        brandId: brand.id,
+        email: "manager-b@shinso.demo",
+        name: "店長B",
+        role: "manager",
+        passwordHash,
+      },
+      {
+        storeId: storeB.id,
+        brandId: brand.id,
+        email: "floor-b@shinso.demo",
+        name: "フロアB",
+        role: "floor",
         passwordHash,
       },
     ],
@@ -827,7 +872,68 @@ async function main() {
     `Owner LINE: sim_owner_line (daily/weekly ON); yesterday(${yesterdayYmd}) paid checks: ${yPaid}`
   );
 
-  const memberCount = await prisma.member.count({ where: { storeId: store.id } });
+  // AUT-37 / AUT-96: Store B minimal isolated menu + tables
+  const areaB = await prisma.area.create({
+    data: { storeId: storeB.id, name: "テーブルB", sortOrder: 1 },
+  });
+  await prisma.table.createMany({
+    data: [
+      { areaId: areaB.id, code: "B1", seats: 4, sortOrder: 1 },
+      { areaId: areaB.id, code: "B2", seats: 4, sortOrder: 2 },
+      { areaId: areaB.id, code: "B3", seats: 6, sortOrder: 3 },
+    ],
+  });
+  const catB = await prisma.menuCategory.create({
+    data: {
+      storeId: storeB.id,
+      name: "B店メニュー",
+      nameZh: "B店菜单",
+      nameEn: "Store B Menu",
+      sortOrder: 1,
+    },
+  });
+  await prisma.menuItem.createMany({
+    data: [
+      {
+        categoryId: catB.id,
+        name: "B店限定定食",
+        nameZh: "B店限定定食",
+        nameEn: "Store B Set",
+        priceYen: 1100,
+        sortOrder: 1,
+      },
+      {
+        categoryId: catB.id,
+        name: "B店生ビール",
+        nameZh: "B店生啤",
+        nameEn: "Store B Draft",
+        priceYen: 600,
+        sortOrder: 2,
+      },
+    ],
+  });
+  const ownerB = await prisma.staff.findFirst({
+    where: { storeId: storeB.id, role: "manager" },
+  });
+  const bdB = await prisma.businessDay.create({
+    data: {
+      storeId: storeB.id,
+      businessDate,
+      status: "open",
+      openedByStaffId: ownerB?.id,
+    },
+  });
+  await prisma.shift.create({
+    data: {
+      storeId: storeB.id,
+      businessDayId: bdB.id,
+      status: "open",
+      openedByStaffId: ownerB?.id,
+      note: "Store B デモ開班",
+    },
+  });
+
+    const memberCount = await prisma.member.count({ where: { storeId: store.id } });
   const tplCount = await prisma.couponTemplate.count({ where: { storeId: store.id } });
   console.log(`CRM members: ${memberCount}, coupon templates: ${tplCount}, demo coupon CPDEMO01`);
 
@@ -844,7 +950,15 @@ async function main() {
   const shiftCount = await prisma.shift.count({ where: { storeId: store.id, status: "open" } });
   console.log(`Devices: ${deviceCount} (T1-01 / KDS-01 / PRT-01)`);
   console.log(`Open shifts: ${shiftCount} (businessDate ${tokyoDateStr})`);
-  console.log("Accounts: owner@ / floor@ / kitchen@ shinso.demo  password: demo1234");
+  const storeBTables = await prisma.table.count({ where: { area: { storeId: storeB.id } } });
+  const storeBItems = await prisma.menuItem.count({
+    where: { category: { storeId: storeB.id } },
+  });
+  console.log(`Brand: ${brand.name}`);
+  console.log(`Store A: ${store.name} / Store B: ${storeB.name} (tables ${storeBTables}, items ${storeBItems})`);
+  console.log(
+    "Accounts: brandadmin@ / owner@ / manager@ / floor@ / kitchen@ / manager-b@ / floor-b@ shinso.demo  password: demo1234"
+  );
 }
 
 main()

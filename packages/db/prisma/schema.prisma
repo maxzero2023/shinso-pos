@@ -25,7 +25,9 @@ enum CheckExceptionStatus {
 }
 
 enum StaffRole {
+  brand_admin
   owner
+  manager
   floor
   kitchen
 }
@@ -64,13 +66,26 @@ enum PaymentMethod {
   alipay
 }
 
+
+model Brand {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stores Store[]
+  staff  Staff[]
+}
+
 model Store {
   id        String   @id @default(cuid())
+  brandId   String
   name      String
   timezone  String   @default("Asia/Tokyo")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  brand         Brand    @relation(fields: [brandId], references: [id], onDelete: Restrict)
   areas         Area[]
   staff         Staff[]
   categories    MenuCategory[]
@@ -87,6 +102,8 @@ model Store {
   pointAwards        PointAward[]
   ownerLineBinding   OwnerLineBinding?
   ownerLineDeliveryLogs OwnerLineDeliveryLog[]
+
+  @@index([brandId])
 }
 
 model Area {
@@ -125,7 +142,10 @@ model Table {
 
 model Staff {
   id           String    @id @default(cuid())
-  storeId      String
+  /// Home / assigned store. Null only for brand_admin (cross-store within brand).
+  storeId      String?
+  /// Brand scope for brand_admin (and optional denormalized brand for store staff).
+  brandId      String?
   email        String    @unique
   name         String
   passwordHash String
@@ -134,12 +154,14 @@ model Staff {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  store       Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store       Store?          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  brand       Brand?          @relation(fields: [brandId], references: [id], onDelete: SetNull)
   auditLogs   CheckAuditLog[]
   openedShifts Shift[]        @relation("ShiftOpenedBy")
   closedShifts Shift[]        @relation("ShiftClosedBy")
 
   @@index([storeId])
+  @@index([brandId])
   @@index([role])
 }
 

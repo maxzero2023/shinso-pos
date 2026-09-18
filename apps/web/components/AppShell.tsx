@@ -1,19 +1,22 @@
 import Link from "next/link";
 import type { SessionPayload } from "@shinso/api";
+import { listAccessibleStores } from "@/lib/store-access";
+import { StoreSwitcher } from "./StoreSwitcher";
 
 const links: Array<{ href: string; label: string; roles?: SessionPayload["role"][] }> = [
-  { href: "/pos", label: "フロア POS", roles: ["owner", "floor"] },
-  { href: "/reservations", label: "予約・候位", roles: ["owner", "floor"] },
-  { href: "/staff", label: "手持ち", roles: ["owner", "floor"] },
-  { href: "/kitchen", label: "キッチン", roles: ["owner", "kitchen", "floor"] },
-  { href: "/devices", label: "デバイス", roles: ["owner", "floor"] },
-  { href: "/ops", label: "運営", roles: ["owner", "floor"] },
-  { href: "/admin/reports", label: "レポート", roles: ["owner", "floor"] },
-  { href: "/admin/crm", label: "CRM", roles: ["owner", "floor"] },
-  { href: "/admin", label: "管理", roles: ["owner"] },
+  { href: "/pos", label: "フロア POS", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/reservations", label: "予約・候位", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/staff", label: "手持ち", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/kitchen", label: "キッチン", roles: ["brand_admin", "owner", "manager", "kitchen", "floor"] },
+  { href: "/devices", label: "デバイス", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/ops", label: "運営", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/admin/reports", label: "レポート", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/admin/crm", label: "CRM", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/admin", label: "管理", roles: ["brand_admin", "owner", "manager"] },
+  { href: "/admin/multi-store", label: "多店", roles: ["brand_admin", "owner", "manager"] },
 ];
 
-export function AppShell({
+export async function AppShell({
   session,
   children,
   title,
@@ -22,6 +25,10 @@ export function AppShell({
   children: React.ReactNode;
   title?: string;
 }) {
+  const stores = await listAccessibleStores(session);
+  const activeStoreId = session.activeStoreId || session.storeId;
+  const canSwitch = session.role === "brand_admin" && stores.length > 1;
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -40,6 +47,11 @@ export function AppShell({
           <div className="muted" style={{ color: "#9fd9b8" }}>
             {session.role} / {session.email}
           </div>
+          <StoreSwitcher
+            stores={stores.map((s) => ({ id: s.id, name: s.name }))}
+            activeStoreId={activeStoreId}
+            canSwitch={canSwitch}
+          />
           <form action="/api/auth/logout" method="post" style={{ marginTop: "0.75rem" }}>
             <button className="btn ghost" type="submit" style={{ color: "white", borderColor: "#3a6a52" }}>
               ログアウト
