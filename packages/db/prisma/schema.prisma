@@ -126,6 +126,8 @@ model Store {
   purchaseOrderAudits PurchaseOrderAudit[]
   expenseEntries     ExpenseEntry[]
   externalOrders     ExternalOrder[]
+  marketingRules     MarketingRule[]
+  marketingSendLogs  MarketingSendLog[]
 
   @@index([brandId])
 }
@@ -700,22 +702,26 @@ enum CouponIssueStatus {
 
 /// LINE-bound member per store. AUT-33 / AUT-79.
 model Member {
-  id          String   @id @default(cuid())
-  storeId     String
-  lineUserId  String
-  displayName String?
-  points      Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  storeId        String
+  lineUserId     String
+  displayName    String?
+  points         Int      @default(0)
+  /// Marketing consent (AUT-44). Seed demo recipients default true; control false.
+  marketingOptIn Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  coupons         CouponIssue[]
-  pointAwards     PointAward[]
-  checks          Check[]
-  waitlistTickets WaitlistTicket[]
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  coupons          CouponIssue[]
+  pointAwards      PointAward[]
+  checks           Check[]
+  waitlistTickets  WaitlistTicket[]
+  marketingSendLogs MarketingSendLog[]
 
   @@unique([storeId, lineUserId])
   @@index([storeId])
+  @@index([storeId, marketingOptIn])
 }
 
 model CouponTemplate {
@@ -829,6 +835,63 @@ model OwnerLineDeliveryLog {
   @@index([storeId, createdAt])
   @@index([storeId, kind, createdAt])
   @@index([bindingId])
+}
+
+enum MarketingRuleType {
+  sleep_recall
+  coupon_nudge
+  welcome
+}
+
+enum MarketingSendStatus {
+  sent
+  skipped_freq
+  skipped_opt_out
+  skipped_disabled
+  skipped_no_match
+  failed
+}
+
+/// Preset marketing automation rule (2–3 types). AUT-44 / AUT-122.
+model MarketingRule {
+  id             String            @id @default(cuid())
+  storeId        String
+  type           MarketingRuleType
+  enabled        Boolean           @default(true)
+  /// Rule-specific params JSON (e.g. inactiveDays, lowPointsThreshold, welcomeWithinDays, message).
+  params         Json              @default("{}")
+  /// Min days between sends of this rule to the same member.
+  frequencyDays  Int               @default(7)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  store Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  logs  MarketingSendLog[]
+
+  @@unique([storeId, type])
+  @@index([storeId, enabled])
+}
+
+/// Per-member send / skip log for marketing rules. AUT-44 / AUT-123.
+model MarketingSendLog {
+  id           String              @id @default(cuid())
+  storeId      String
+  ruleId       String
+  memberId     String?
+  status       MarketingSendStatus
+  messageText  String              @default("")
+  errorMessage String?
+  meta         Json?
+  sentAt       DateTime?
+  createdAt    DateTime            @default(now())
+
+  store  Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  rule   MarketingRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  member Member?       @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, createdAt])
+  @@index([ruleId, memberId, createdAt])
+  @@index([ruleId, status, createdAt])
 }
 
 /// Raw material / ingredient per store. AUT-38.

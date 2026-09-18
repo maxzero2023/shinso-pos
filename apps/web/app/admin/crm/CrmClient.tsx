@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 type Member = {
@@ -214,6 +215,11 @@ export function CrmClient() {
 
   return (
     <div className="stack">
+      <div className="card">
+        <Link className="btn secondary" href="/admin/marketing">
+          マーケティング自動化（休眠リコール等）→
+        </Link>
+      </div>
       <div className="card row" style={{ alignItems: "center" }}>
         <strong>LINE_MODE</strong>
         <span className="badge open">{mode}</span>

@@ -17,6 +17,8 @@ async function main() {
   await prisma.bomLine.deleteMany();
   await prisma.stockLedger.deleteMany();
   await prisma.ingredient.deleteMany();
+  await prisma.marketingSendLog.deleteMany();
+  await prisma.marketingRule.deleteMany();
   await prisma.ownerLineDeliveryLog.deleteMany();
   await prisma.ownerLineBinding.deleteMany();
   await prisma.pointAward.deleteMany();
@@ -692,6 +694,7 @@ async function main() {
       lineUserId: "sim_demo_taro",
       displayName: "デモ太郎",
       points: 0,
+      marketingOptIn: true,
     },
   });
   const memberB = await prisma.member.create({
@@ -700,6 +703,39 @@ async function main() {
       lineUserId: "sim_demo_hanako",
       displayName: "デモ花子",
       points: 50,
+      marketingOptIn: true,
+    },
+  });
+  // AUT-44: sleeping member (no recent visit) — opt-in target for sleep_recall
+  const memberSleep = await prisma.member.create({
+    data: {
+      storeId: store.id,
+      lineUserId: "sim_demo_sleeping",
+      displayName: "休眠一郎",
+      points: 5,
+      marketingOptIn: true,
+      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+    },
+  });
+  // AUT-44: control — same inactivity but marketingOptIn false
+  const memberOptOut = await prisma.member.create({
+    data: {
+      storeId: store.id,
+      lineUserId: "sim_demo_optout",
+      displayName: "拒否花",
+      points: 3,
+      marketingOptIn: false,
+      createdAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+    },
+  });
+  // AUT-44: brand-new welcome target (created just now, opt-in)
+  const memberWelcome = await prisma.member.create({
+    data: {
+      storeId: store.id,
+      lineUserId: "sim_demo_welcome",
+      displayName: "新規次郎",
+      points: 0,
+      marketingOptIn: true,
     },
   });
 
@@ -736,6 +772,67 @@ async function main() {
   void couponIssued;
   void memberB;
   void tplDessert;
+  void memberWelcome;
+
+  // AUT-44: attach an old paid check to sleeping member (45 days ago) so last activity is stale
+  {
+    const sleepTable = await prisma.table.findFirst({
+      where: { area: { storeId: store.id }, code: "A1" },
+    });
+    if (sleepTable) {
+      const oldClosed = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+      await prisma.check.create({
+        data: {
+          tableId: sleepTable.id,
+          status: "paid",
+          guestCount: 1,
+          memberId: memberSleep.id,
+          openedAt: new Date(oldClosed.getTime() - 60 * 60 * 1000),
+          closedAt: oldClosed,
+          note: "AUT-44 seed: sleeping member last visit",
+        },
+      });
+      // Opt-out control also has old visit (should never be messaged)
+      await prisma.check.create({
+        data: {
+          tableId: sleepTable.id,
+          status: "paid",
+          guestCount: 1,
+          memberId: memberOptOut.id,
+          openedAt: new Date(oldClosed.getTime() - 2 * 60 * 60 * 1000),
+          closedAt: new Date(oldClosed.getTime() - 60 * 60 * 1000),
+          note: "AUT-44 seed: opt-out sleeping control",
+        },
+      });
+    }
+  }
+
+  // AUT-44 / AUT-122: three preset marketing rules
+  await prisma.marketingRule.createMany({
+    data: [
+      {
+        storeId: store.id,
+        type: "sleep_recall",
+        enabled: true,
+        frequencyDays: 14,
+        params: { inactiveDays: 30, message: "" },
+      },
+      {
+        storeId: store.id,
+        type: "coupon_nudge",
+        enabled: true,
+        frequencyDays: 7,
+        params: { lowPointsThreshold: 20, requireUnusedCoupon: true, message: "" },
+      },
+      {
+        storeId: store.id,
+        type: "welcome",
+        enabled: true,
+        frequencyDays: 30,
+        params: { welcomeWithinDays: 3, message: "" },
+      },
+    ],
+  });
 
   // AUT-42: member-bound wait ticket for LINE call demo (ticketNo continues business day)
   const wlBiz = new Date(
@@ -1312,7 +1409,9 @@ async function main() {
 
       const memberCount = await prisma.member.count({ where: { storeId: store.id } });
   const tplCount = await prisma.couponTemplate.count({ where: { storeId: store.id } });
+  const mktRules = await prisma.marketingRule.count({ where: { storeId: store.id } });
   console.log(`CRM members: ${memberCount}, coupon templates: ${tplCount}, demo coupon CPDEMO01`);
+  console.log(`Marketing rules (AUT-44): ${mktRules} (sleep_recall / coupon_nudge / welcome); sleeping=sim_demo_sleeping`);
 
   const reservationCount = await prisma.reservation.count({ where: { storeId: store.id } });
   const waitlistCount = await prisma.waitlistTicket.count({ where: { storeId: store.id } });
