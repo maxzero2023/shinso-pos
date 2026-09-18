@@ -351,7 +351,7 @@ export function ReservationsClient() {
                               className="btn"
                               type="button"
                               disabled={busy || (!r.tableId && !tableId)}
-                              onClick={() => seatReservation(r.id, r.tableId ?? tableId || null)}
+                              onClick={() => seatReservation(r.id, r.tableId ?? (tableId || null))}
                             >
                               到店开台
                             </button>

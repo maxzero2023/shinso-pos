@@ -36,7 +36,7 @@ export async function POST(req: Request, ctx: Ctx) {
     guestCount,
   });
   if ("error" in opened) {
-    return error(opened.error, opened.status, opened.checkId ? { checkId: opened.checkId } : undefined);
+    return error(opened.error ?? "開台失敗", opened.status, opened.checkId ? { checkId: opened.checkId } : undefined);
   }
 
   const now = new Date();
