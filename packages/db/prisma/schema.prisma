@@ -59,6 +59,8 @@ model Store {
   categories   MenuCategory[]
   reservations Reservation[]
   waitlist     WaitlistTicket[]
+  devices      Device[]
+  printJobs    PrintJob[]
 }
 
 model Area {
@@ -193,6 +195,7 @@ model Check {
   items          CheckItem[]
   kitchenTickets KitchenTicket[]
   payments       Payment[]
+  printJobs      PrintJob[]
   reservation    Reservation?
   waitlistTicket WaitlistTicket?
 
@@ -231,8 +234,9 @@ model KitchenTicket {
   updatedAt DateTime            @updatedAt
   createdAt DateTime            @default(now())
 
-  check Check               @relation(fields: [checkId], references: [id], onDelete: Cascade)
-  lines KitchenTicketLine[]
+  check     Check               @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  lines     KitchenTicketLine[]
+  printJobs PrintJob[]
 
   @@index([checkId])
   @@index([status])
@@ -371,4 +375,79 @@ model WaitlistTicket {
   @@index([storeId, status])
   @@index([storeId, ticketNo])
   @@index([tableId])
+}
+
+enum DeviceType {
+  t1_pos
+  kitchen_display
+  printer
+}
+
+enum DeviceStatus {
+  online
+  offline
+  out_of_paper
+  error
+}
+
+enum PrintJobType {
+  receipt
+  kitchen
+}
+
+enum PrintJobStatus {
+  queued
+  printing
+  printed
+  failed
+}
+
+/// Store-scoped hardware (T1 / kitchen display / printer). AUT-30 / AUT-68.
+model Device {
+  id              String       @id @default(cuid())
+  storeId         String
+  type            DeviceType
+  name            String
+  code            String
+  status          DeviceStatus @default(offline)
+  lastHeartbeatAt DateTime?
+  meta            Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  printJobs PrintJob[]
+
+  @@unique([storeId, code])
+  @@index([storeId])
+  @@index([storeId, type])
+  @@index([status])
+}
+
+/// Print queue for receipt / kitchen tickets. Consumes same Check / KitchenTicket (no shadow orders).
+model PrintJob {
+  id              String         @id @default(cuid())
+  storeId         String
+  deviceId        String?
+  type            PrintJobType
+  status          PrintJobStatus @default(queued)
+  checkId         String?
+  kitchenTicketId String?
+  contentText     String
+  contentHtml     String?
+  errorMessage    String?
+  printedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  device        Device?        @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  check         Check?         @relation(fields: [checkId], references: [id], onDelete: SetNull)
+  kitchenTicket KitchenTicket? @relation(fields: [kitchenTicketId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
+  @@index([deviceId])
+  @@index([checkId])
+  @@index([kitchenTicketId])
+  @@index([createdAt])
 }
