@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/multi-store /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -479,6 +479,11 @@ pnpm test
 | AUT-37 | 多店 Brand/Store MVP |
 | AUT-38 | 在庫 MVP（原料・出入庫・低在庫・BOM） |
 | AUT-39 | 調達：補貨提案 → 発注草稿 → 入庫 |
+| AUT-40 | 財務：コスト粗算・毛利・簡要費用 |
+| AUT-106 | コスト粗算 + 毛利 API |
+| AUT-107 | ExpenseEntry |
+| AUT-108 | Admin 毛利看板 + 口径ドキュメント |
+| AUT-109 | seed/tests + seed PO 清理 |
 | AUT-102 | 補貨提案 suggestions |
 | AUT-104 | PurchaseOrder 草稿/編集 |
 | AUT-103 | 入庫 + Admin UI |
@@ -645,9 +650,54 @@ pnpm test
 | AUT-105 | seed / tests / README |
 
 
+
+## 財務分析：コスト粗算・毛利・簡要費用（AUT-40）
+
+**経営分析用の概算 / 非法定帳務。** 会計帳簿・税務申告・監査の代替ではありません。Asia/Tokyo 日界、JPY 整数、店舗 = `activeStoreId`。
+
+### 口径
+
+| 指標 | 定義 |
+|------|------|
+| 売上 (revenue) | 当日の **paid Check**（AUT-32 と同じ `effectivePaidAt` / void 除外） |
+| 原価粗算 (COGS) | 当日販売 MenuItem について `Σ (soldQty × BomLine.qtyPerItem × Ingredient.costYenPerUnit)`。BOM 未設定の品目は **0 円**（レスポンスに注記） |
+| 費用 (expenses) | `ExpenseEntry` 手入力。**売上には加算しない** |
+| 粗利概算 | `revenue − COGS − expenses` |
+
+ライブ計算（MVP）。スナップショット表は任意・未使用。
+
+### デモパス
+
+1. `pnpm db:migrate` → `pnpm db:seed` → `pnpm dev`
+2. `owner@shinso.demo` / `demo1234` → **/admin/finance**
+3. 営業日を選び **毛利ボード**（売上・原価粗算・費用・粗利）を確認。BOM 未設定メニューは注記される
+4. **費用入力**でカテゴリ（光熱費など）と金額を登録 → 粗利が減少する（売上は不変）
+5. seed は Store A に当日・昨日の費用サンプル、Store B に隔離用 1 件を投入
+6. 店舗隔離：`brandadmin@` で店舗 B に切替 → A の費用・毛利は見えない
+7. `PAYMENT_MODE=mock pnpm test` に finance スイート含む
+
+### API
+
+- `GET /api/finance/margins?date=YYYY-MM-DD`
+- `GET /api/finance/expenses?date=`（または `from`/`to`）
+- `POST /api/finance/expenses`（owner/manager）
+
+### 範囲外（本 MVP）
+
+完全な総勘定元帳、税務申告、多主体連結。
+
+### 子課題
+
+| ID | 内容 |
+|----|------|
+| AUT-106 | コスト粗算 + 毛利 API |
+| AUT-107 | ExpenseEntry |
+| AUT-108 | Admin UI + 口径ドキュメント |
+| AUT-109 | seed/tests + seed PO 清理 |
+
 ## 明确不做（本 MVP）
 
-供应商门户/多级审批/ERP 对接、多仓/生产计划、实时理论库存强一致、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
+完整总账/税务申报/多主体合并（财务为经营概算）、供应商门户/多级审批/ERP 对接、多仓/生产计划、实时理论库存强一致、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
 
 
 ## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）

@@ -58,6 +58,9 @@ export function AdminClient({
           <Link className="btn secondary" href="/admin/purchasing">
             調達・発注 →
           </Link>
+          <Link className="btn secondary" href="/admin/finance">
+            財務分析（概算） →
+          </Link>
         </div>
       </div>
 

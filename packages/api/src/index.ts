@@ -14,3 +14,4 @@ export * from "./i18n";
 export * from "./store-scope";
 export * from "./inventory";
 export * from "./purchasing";
+export * from "./finance";

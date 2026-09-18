@@ -16,6 +16,7 @@ const links: Array<{ href: string; label: string; roles?: SessionPayload["role"]
   { href: "/admin/multi-store", label: "多店", roles: ["brand_admin", "owner", "manager"] },
   { href: "/admin/inventory", label: "在庫", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/admin/purchasing", label: "調達", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/admin/finance", label: "財務", roles: ["brand_admin", "owner", "manager", "floor"] },
 ];
 
 export async function AppShell({
