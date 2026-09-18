@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -211,6 +211,7 @@ pnpm test
 - 预约 CRUD/cancel；seat → open Check；hold ≠ open Check
 - 候位 join/call/seat；一桌最多一张 open Check
 - LINE notify stub
+- 日营收 / 热销 / 桌均 / 时段 API；void 除外；kitchen 403；空日 0
 
 
 
@@ -251,6 +252,52 @@ pnpm test
 | AUT-75 | 異常フラグ/解消 + /ops UI（日文） |
 | AUT-74 | Seed + テスト + README |
 
+
+
+## 基礎レポート（日営収 / 熱銷 / 卓均 / 時間帯 / AUT-32）
+
+日本単店向けの基礎経営レポート。集計は **アプリケーション層**（Prisma 取得 + `@shinso/api` の純関数）。LINE 日報は同じ API を再利用できる。
+
+### 口径（不変条件）
+
+| 項目 | 決定 |
+|------|------|
+| 対象伝票 | `Check.status = paid` のみ（**void 除外**） |
+| 明細 | `CheckItem.status ≠ void`；金額は **円整数** |
+| タイムゾーン | **Asia/Tokyo** |
+| 日・時間帯の帰属 | **Payment.paidAt**（無ければ `Check.closedAt`） |
+| 卓均 | `tableAvgYen = round(日営収 / 精算件数)`；0 件の日は 0 |
+| 熱銷 | MenuItem 単位で qty 合計（同名でも menuItemId） |
+| 権限 | **owner + floor 閲覧可**（デモ）；kitchen 不可。店長ロールは現状 owner が兼ねる |
+
+### API
+
+- `GET /api/reports/daily?date=YYYY-MM-DD`
+- `GET /api/reports/bestsellers?from=&to=`
+- `GET /api/reports/table-avg?date=`
+- `GET /api/reports/hourly?date=`
+
+空日は **0** を返す（エラーにしない）。未ログイン 401 / kitchen 403。
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev`
+2. ログイン `owner@shinso.demo` または `floor@shinso.demo` / `demo1234`
+3. 側欄 **レポート** → `/admin/reports`
+4. 本日（Tokyo）の日営収・精算件数・卓均・時間帯バー・熱銷を確認
+5. seed は 12/14/18/20/21 時台の paid Check + 1 件 void（レポート外）を投入
+6. 日付を空日（例: 遠い未来）に切替 → すべて 0
+7. `kitchen@` で API を叩くと 403
+
+### 子タスク
+
+| Ticket | 内容 |
+|--------|------|
+| AUT-76 | 报表查询层：日营收/热销/桌均/时段 API |
+| AUT-77 | Admin `/admin/reports` UI + 权限 |
+| AUT-78 | Seed 跨时段已付单 + 测试 + 口径文档 |
+
+
 ## 领域不变量
 
 - 一张桌同时最多一张 `open` Check
@@ -284,6 +331,9 @@ pnpm test
 | AUT-65 | PayPay 沙箱/契约 + 模拟器回写 |
 | AUT-67 | Webhook/验签 + 幂等；失败取消不关单 |
 | AUT-66 | POS 结账 UI + README 沙箱演示 |
+| AUT-76 | 报表查询层：日营收/热销/桌均/时段 API |
+| AUT-77 | Admin /admin/reports UI + 权限 |
+| AUT-78 | Seed 跨时段已付单 + 测试 + 口径文档 |
 
 ## 明确不做（本 MVP）
 

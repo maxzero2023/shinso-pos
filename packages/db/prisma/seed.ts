@@ -397,6 +397,169 @@ async function main() {
     ],
   });
 
+
+  // AUT-32 / AUT-78: multi-hour paid checks for reports demo (Asia/Tokyo paidAt)
+  const menuItems = await prisma.menuItem.findMany({
+    where: { category: { storeId: store.id }, active: true },
+    orderBy: { sortOrder: "asc" },
+  });
+  const byName = (n: string) => menuItems.find((m) => m.name === n)!;
+  const edamame = byName("枝豆");
+  const karaage = byName("唐揚げ定食");
+  const beer = byName("生ビール");
+  const momo = byName("もも");
+  const highball = byName("ハイボール");
+  const warabi = byName("わらび餅");
+
+  const c1 = tables.find((t) => t.code === "C1")!;
+  const c2 = tables.find((t) => t.code === "C2")!;
+  const t3 = tables.find((t) => t.code === "T3")!;
+  const t5 = tables.find((t) => t.code === "T5")!;
+  const openShift = await prisma.shift.findFirst({
+    where: { storeId: store.id, status: "open" },
+  });
+
+  type PaidSeed = {
+    tableId: string;
+    paidHm: string;
+    guestCount: number;
+    method: "cash" | "card" | "paypay";
+    lines: Array<{ item: typeof edamame; qty: number }>;
+  };
+
+  const paidSeeds: PaidSeed[] = [
+    {
+      tableId: c1.id,
+      paidHm: "12:15",
+      guestCount: 1,
+      method: "cash",
+      lines: [
+        { item: edamame, qty: 1 },
+        { item: beer, qty: 1 },
+      ],
+    },
+    {
+      tableId: c2.id,
+      paidHm: "14:40",
+      guestCount: 2,
+      method: "paypay",
+      lines: [
+        { item: karaage, qty: 2 },
+        { item: beer, qty: 2 },
+        { item: momo, qty: 3 },
+      ],
+    },
+    {
+      tableId: t3.id,
+      paidHm: "18:20",
+      guestCount: 4,
+      method: "card",
+      lines: [
+        { item: edamame, qty: 2 },
+        { item: karaage, qty: 1 },
+        { item: beer, qty: 4 },
+        { item: highball, qty: 2 },
+        { item: momo, qty: 6 },
+      ],
+    },
+    {
+      tableId: t5.id,
+      paidHm: "20:05",
+      guestCount: 3,
+      method: "paypay",
+      lines: [
+        { item: beer, qty: 3 },
+        { item: momo, qty: 4 },
+        { item: warabi, qty: 2 },
+      ],
+    },
+    {
+      tableId: c1.id,
+      paidHm: "21:30",
+      guestCount: 2,
+      method: "cash",
+      lines: [
+        { item: highball, qty: 2 },
+        { item: momo, qty: 2 },
+      ],
+    },
+  ];
+
+  for (const seed of paidSeeds) {
+    const paidAt = atTokyo(seed.paidHm);
+    const openedAt = new Date(paidAt.getTime() - 45 * 60_000);
+    const check = await prisma.check.create({
+      data: {
+        tableId: seed.tableId,
+        status: "paid",
+        guestCount: seed.guestCount,
+        openedAt,
+        closedAt: paidAt,
+        businessDayId: businessDay.id,
+        shiftId: openShift?.id,
+        items: {
+          create: seed.lines.map((l) => ({
+            menuItemId: l.item.id,
+            name: l.item.name,
+            unitPriceYen: l.item.priceYen,
+            qty: l.qty,
+            status: "fired",
+            modifiers: [],
+          })),
+        },
+      },
+      include: { items: true },
+    });
+    const amountYen = check.items.reduce(
+      (s, i) => s + i.unitPriceYen * i.qty,
+      0
+    );
+    await prisma.payment.create({
+      data: {
+        checkId: check.id,
+        method: seed.method,
+        amountYen,
+        mock: true,
+        status: "succeeded",
+        provider: "mock",
+        paidAt,
+      },
+    });
+  }
+
+  // Void check — must NOT appear in reports
+  const voidPaidAt = atTokyo("19:00");
+  const voidCheck = await prisma.check.create({
+    data: {
+      tableId: c2.id,
+      status: "void",
+      guestCount: 1,
+      openedAt: new Date(voidPaidAt.getTime() - 30 * 60_000),
+      closedAt: voidPaidAt,
+      businessDayId: businessDay.id,
+      shiftId: openShift?.id,
+      note: "AUT-32 seed: void excluded from reports",
+      items: {
+        create: [
+          {
+            menuItemId: beer.id,
+            name: beer.name,
+            unitPriceYen: beer.priceYen,
+            qty: 1,
+            status: "void",
+            modifiers: [],
+          },
+        ],
+      },
+    },
+  });
+  void voidCheck;
+
+  const paidCheckCount = await prisma.check.count({
+    where: { status: "paid", table: { area: { storeId: store.id } } },
+  });
+  console.log(`Paid checks (reports seed): ${paidCheckCount} across hours 12/14/18/20/21`);
+
   const reservationCount = await prisma.reservation.count({ where: { storeId: store.id } });
   const waitlistCount = await prisma.waitlistTicket.count({ where: { storeId: store.id } });
   const tableCount = await prisma.table.count({ where: { area: { storeId: store.id } } });
