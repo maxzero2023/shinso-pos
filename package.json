@@ -14,7 +14,8 @@
     "db:seed": "pnpm --filter @shinso/db seed",
     "db:studio": "pnpm --filter @shinso/db studio",
     "db:reset": "pnpm --filter @shinso/db reset",
-    "demo:hardware": "bash scripts/demo-hardware.sh"
+    "demo:hardware": "bash scripts/demo-hardware.sh",
+    "demo:hardware:alt": "bash scripts/demo-hardware-alt.sh"
   },
   "engines": {
     "node": ">=20"

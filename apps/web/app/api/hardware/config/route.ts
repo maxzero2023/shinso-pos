@@ -1,4 +1,4 @@
-import { getHardwareMode } from "@shinso/api";
+import { getHardwareMode, SUPPORTED_DEVICE_PROFILES, PRINTER_DEVICE_TYPES } from "@shinso/api";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { json } from "@/lib/http";
 
@@ -11,5 +11,12 @@ export async function GET() {
     simulator: mode === "simulator",
     receiptWidthMm: 80,
     heartbeatStaleMs: 45_000,
+    printerDeviceTypes: PRINTER_DEVICE_TYPES,
+    profiles: SUPPORTED_DEVICE_PROFILES,
+    routing: {
+      defaultPrefers: "standard",
+      explicitDeviceIdAllowed: true,
+      altDoesNotStealDefault: true,
+    },
   });
 }

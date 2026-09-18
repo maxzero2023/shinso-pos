@@ -21,7 +21,15 @@ export type MessageKey =
   | "retry"
   | "qty"
   | "failed"
-  | "openCheckRequired";
+  | "openCheckRequired"
+  | "enterTableCode"
+  | "tableNotFound"
+  | "tableCodePlaceholder"
+  | "pickByCode"
+  | "fireToKitchen"
+  | "firedToKitchen"
+  | "fireFailed"
+  | "noOpenCheckShort";
 
 type Dict = Record<MessageKey, string>;
 
@@ -48,6 +56,14 @@ export const messages: Record<Locale, Dict> = {
     qty: "数量",
     failed: "失敗",
     openCheckRequired: "オープン伝票がありません。POSで開台してください。",
+    enterTableCode: "テーブル番号を入力してください",
+    tableNotFound: "テーブルが見つかりません",
+    tableCodePlaceholder: "卓番 / QRコード",
+    pickByCode: "番号で選択",
+    fireToKitchen: "厨房へ送る",
+    firedToKitchen: "厨房へ送信しました",
+    fireFailed: "送厨に失敗しました",
+    noOpenCheckShort: "未開台",
   },
   zh: {
     guestOrder: "客人点餐",
@@ -71,6 +87,14 @@ export const messages: Record<Locale, Dict> = {
     qty: "数量",
     failed: "失败",
     openCheckRequired: "没有开台账单，请先在 POS 开台。",
+    enterTableCode: "请输入桌号",
+    tableNotFound: "未找到桌台",
+    tableCodePlaceholder: "桌号 / 扫码",
+    pickByCode: "按号选桌",
+    fireToKitchen: "送厨",
+    firedToKitchen: "已送厨",
+    fireFailed: "送厨失败",
+    noOpenCheckShort: "未开台",
   },
   en: {
     guestOrder: "Guest order",
@@ -94,6 +118,14 @@ export const messages: Record<Locale, Dict> = {
     qty: "Qty",
     failed: "Failed",
     openCheckRequired: "No open check. Please open a table on POS first.",
+    enterTableCode: "Enter a table code",
+    tableNotFound: "Table not found",
+    tableCodePlaceholder: "Table code / QR",
+    pickByCode: "Pick by code",
+    fireToKitchen: "Fire to kitchen",
+    firedToKitchen: "Sent to kitchen",
+    fireFailed: "Failed to fire",
+    noOpenCheckShort: "Not open",
   },
 };
 

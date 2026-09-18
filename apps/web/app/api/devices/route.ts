@@ -5,6 +5,9 @@ import {
   refreshStaleDeviceStatuses,
   isDeviceEffectivelyOffline,
   devicePrintError,
+  isPrinterDeviceType,
+  resolvePackFlags,
+  SUPPORTED_DEVICE_PROFILES,
 } from "@shinso/api";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
@@ -16,15 +19,16 @@ export async function GET() {
   await refreshStaleDeviceStatuses(prisma, session.storeId);
   const devices = await prisma.device.findMany({
     where: { storeId: session.storeId },
-    orderBy: [{ type: "asc" }, { code: "asc" }],
+    orderBy: [{ pack: "asc" }, { type: "asc" }, { code: "asc" }],
   });
 
   return json({
     mode: getHardwareMode(),
+    profiles: SUPPORTED_DEVICE_PROFILES,
     devices: devices.map((d) => ({
       ...d,
       effectivelyOffline: isDeviceEffectivelyOffline(d),
-      printError: d.type === "printer" ? devicePrintError(d) : null,
+      printError: isPrinterDeviceType(d.type) ? devicePrintError(d) : null,
     })),
   });
 }
@@ -41,12 +45,16 @@ export async function POST(req: Request) {
   });
   if (existing) return error("同じコードの端末が既に登録されています", 409);
 
+  const { pack, isPrimaryStandardPack } = resolvePackFlags(parsed.data);
+
   const device = await prisma.device.create({
     data: {
       storeId: session.storeId,
       type: parsed.data.type,
       name: parsed.data.name,
       code: parsed.data.code,
+      pack,
+      isPrimaryStandardPack,
       status: "online",
       lastHeartbeatAt: new Date(),
       meta: (parsed.data.meta as object | undefined) ?? undefined,

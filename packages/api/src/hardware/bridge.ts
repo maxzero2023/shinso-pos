@@ -8,6 +8,7 @@ import {
   type KitchenTicketPayload,
   type ReceiptPayload,
 } from "./receipt";
+import { isPrinterDeviceType, PRINTER_DEVICE_TYPES } from "./types";
 
 type Tx = Omit<
   PrismaClient,
@@ -35,12 +36,47 @@ export function devicePrintError(
   return null;
 }
 
-async function findPrinter(db: PrismaClient | Tx, storeId: string, deviceId?: string) {
+/**
+ * Print routing (AUT-41):
+ * - Explicit deviceId → that printer (alt-pack demos) without changing defaults
+ * - Else prefer standard-pack printer (never auto-steal to alt while standard exists)
+ * - Else any registered printer type
+ */
+export async function findPrinter(
+  db: PrismaClient | Tx,
+  storeId: string,
+  deviceId?: string
+) {
   if (deviceId) {
-    return db.device.findFirst({ where: { id: deviceId, storeId, type: "printer" } });
+    const targeted = await db.device.findFirst({
+      where: {
+        id: deviceId,
+        storeId,
+        type: { in: [...PRINTER_DEVICE_TYPES] },
+      },
+    });
+    return targeted;
   }
+
+  const standard = await db.device.findFirst({
+    where: {
+      storeId,
+      pack: "standard",
+      type: "printer",
+      isPrimaryStandardPack: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  if (standard) return standard;
+
+  const anyStandardPrinter = await db.device.findFirst({
+    where: { storeId, pack: "standard", type: { in: [...PRINTER_DEVICE_TYPES] } },
+    orderBy: { createdAt: "asc" },
+  });
+  if (anyStandardPrinter) return anyStandardPrinter;
+
   return db.device.findFirst({
-    where: { storeId, type: "printer" },
+    where: { storeId, type: { in: [...PRINTER_DEVICE_TYPES] } },
     orderBy: { createdAt: "asc" },
   });
 }
@@ -61,6 +97,17 @@ export async function processPrintJob(
   const printer = job.deviceId
     ? await db.device.findUnique({ where: { id: job.deviceId } })
     : await findPrinter(db, job.storeId);
+
+  if (printer && !isPrinterDeviceType(printer.type)) {
+    return db.printJob.update({
+      where: { id: jobId },
+      data: {
+        status: "failed",
+        errorMessage: `端末「${printer.name}」はプリンタではありません`,
+        deviceId: printer.id,
+      },
+    });
+  }
 
   if (mode === "live") {
     return db.printJob.update({
@@ -165,6 +212,8 @@ export type DeviceHealth = {
   code: string;
   name: string;
   type: string;
+  pack: string;
+  isPrimaryStandardPack: boolean;
   status: DeviceStatus;
   lastHeartbeatAt: Date | null;
   effectivelyOffline: boolean;
