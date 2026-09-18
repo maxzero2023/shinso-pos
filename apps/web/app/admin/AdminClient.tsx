@@ -67,6 +67,9 @@ export function AdminClient({
           <Link className="btn secondary" href="/delivery">
             配達・外卖（半自動） →
           </Link>
+          <Link className="btn secondary" href="/admin/package-tiers">
+            套餐能力マトリクス →
+          </Link>
         </div>
       </div>
 
