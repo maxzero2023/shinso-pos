@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/multi-store /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/multi-store /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -478,6 +478,11 @@ pnpm test
 | AUT-91 | tests + README 演示 |
 | AUT-37 | 多店 Brand/Store MVP |
 | AUT-38 | 在庫 MVP（原料・出入庫・低在庫・BOM） |
+| AUT-39 | 調達：補貨提案 → 発注草稿 → 入庫 |
+| AUT-102 | 補貨提案 suggestions |
+| AUT-104 | PurchaseOrder 草稿/編集 |
+| AUT-103 | 入庫 + Admin UI |
+| AUT-105 | seed/tests/README |
 | AUT-94 | Brand/Store モデル + 単店移行 |
 | AUT-95 | 権限 + switch-store |
 | AUT-97 | Admin 多店 UI |
@@ -585,7 +590,7 @@ pnpm test
 
 ### 範囲外（本 MVP）
 
-調達承認フロー（AUT-39）、多倉、生産計画、送厨時のリアルタイム理論在庫同期。
+多倉、生産計画、送厨時のリアルタイム理論在庫同期。調達は AUT-39。
 
 ### 子課題
 
@@ -597,9 +602,52 @@ pnpm test
 | AUT-101 | seed / tests / README |
 
 
+
+## 調達・発注：補貨提案 → 草稿 → 入庫（AUT-39）
+
+在庫 MVP（AUT-38）の低在庫から **補貨提案 → PurchaseOrder（draft|ordered|received|canceled）→ 入庫 → StockLedger inbound** までを接続。提案数量 = `max(0, lowStockThreshold − onHand)`（店舗 = activeStoreId）。短収・超収いずれも可（数量 ≥ 0）。キャンセル済みは入庫不可。作成/編集/入庫は `PurchaseOrderAudit` に留痕。
+
+| モデル | 内容 |
+|--------|------|
+| Supplier | storeId / name（最小主データ） |
+| PurchaseOrder | storeId / supplierId? / status / note / who·when |
+| PurchaseOrderLine | ingredientId / orderedQty / receivedQty? |
+| PurchaseOrderAudit | action (create\|update\|order\|receive\|cancel) / summary / detail |
+
+### デモパス
+
+1. `pnpm db:migrate` → `pnpm db:seed` → `pnpm dev`
+2. `owner@shinso.demo` / `demo1234` → **/admin/purchasing**（または在庫で枝豆が低在庫であることを確認）
+3. **補貨提案**：枝豆（冷凍）が現在庫 1000 / 閾値 1500 → 提案数量 **500**
+4. 「提案から下書き作成」→ **発注書**タブで数量を編集して保存 → 「発注確定」
+5. **入庫確認**：入庫数量を入力（短収・超収可）→ 「入庫確定」→ 現在庫が増加し `/admin/inventory` の流水に `purchase_receive:…` が記録される
+6. キャンセルした発注書は入庫 API が 409
+7. 店舗隔離：`brandadmin@` で店舗 B に切替 → A の提案・発注は見えない
+
+### API
+
+- `GET /api/purchasing/suggestions`
+- `GET/POST /api/purchasing/orders` · `GET/PATCH /api/purchasing/orders/:id`
+- `POST /api/purchasing/orders/:id/receive`
+- `GET /api/purchasing/suppliers`
+
+### 範囲外（本 MVP）
+
+仕入先ポータル、多段承認、外部 ERP 同期。
+
+### 子課題
+
+| ID | 内容 |
+|----|------|
+| AUT-102 | 補貨提案 suggestions |
+| AUT-104 | PurchaseOrder 草稿/編集 |
+| AUT-103 | 入庫 + Admin UI |
+| AUT-105 | seed / tests / README |
+
+
 ## 明确不做（本 MVP）
 
-完整采购审批、多仓/生产计划、实时理论库存强一致、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
+供应商门户/多级审批/ERP 对接、多仓/生产计划、实时理论库存强一致、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
 
 
 ## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）
