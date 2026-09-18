@@ -6,6 +6,12 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  // AUT-40 / AUT-109: ExpenseEntry + PurchaseOrder-related cleanup (re-seed safe)
+  await prisma.expenseEntry.deleteMany();
+  await prisma.purchaseOrderAudit.deleteMany();
+  await prisma.purchaseOrderLine.deleteMany();
+  await prisma.purchaseOrder.deleteMany();
+  await prisma.supplier.deleteMany();
   await prisma.bomLine.deleteMany();
   await prisma.stockLedger.deleteMany();
   await prisma.ingredient.deleteMany();
@@ -1006,6 +1012,42 @@ async function main() {
   console.log(
     `Purchasing: suppliers A=${supplierA.name}, B=${supplierB.name}; edamame suggestedQty=500`
   );
+
+  // AUT-40 / AUT-109: sample expenses (management estimate, not statutory)
+  // reuse ownerStaff from inventory seed above
+  const todayYmdExpense = tokyoDateStr;
+  await prisma.expenseEntry.createMany({
+    data: [
+      {
+        storeId: store.id,
+        date: new Date(`${todayYmdExpense}T00:00:00.000Z`),
+        amountYen: 8000,
+        category: "光熱費",
+        label: "電気代概算",
+        note: "seed デモ（経営分析用）",
+        createdById: ownerStaff?.id,
+      },
+      {
+        storeId: store.id,
+        date: new Date(`${yesterdayYmd}T00:00:00.000Z`),
+        amountYen: 3500,
+        category: "消耗品",
+        label: "ラップ・洗剤",
+        note: "seed デモ",
+        createdById: ownerStaff?.id,
+      },
+      {
+        storeId: storeB.id,
+        date: new Date(`${todayYmdExpense}T00:00:00.000Z`),
+        amountYen: 1200,
+        category: "その他",
+        label: "Store B 隔離デモ",
+        note: "店舗隔離確認用",
+      },
+    ],
+  });
+  const expenseCount = await prisma.expenseEntry.count({ where: { storeId: store.id } });
+  console.log(`Finance expenses Store A: ${expenseCount} (demo; 非法定帳務)`);
 
   // AUT-37 / AUT-96: Store B minimal isolated menu + tables
   const areaB = await prisma.area.create({

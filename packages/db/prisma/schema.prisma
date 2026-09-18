@@ -106,6 +106,7 @@ model Store {
   suppliers          Supplier[]
   purchaseOrders     PurchaseOrder[]
   purchaseOrderAudits PurchaseOrderAudit[]
+  expenseEntries     ExpenseEntry[]
 
   @@index([brandId])
 }
@@ -167,6 +168,7 @@ model Staff {
   purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreatedBy")
   purchaseOrdersUpdated PurchaseOrder[] @relation("PurchaseOrderUpdatedBy")
   purchaseOrderAudits   PurchaseOrderAudit[]
+  expenseEntries        ExpenseEntry[]
 
   @@index([storeId])
   @@index([brandId])
@@ -896,4 +898,29 @@ model PurchaseOrderAudit {
   @@index([orderId, createdAt])
   @@index([staffId])
   @@index([action])
+}
+
+/// Brief store-day expense for management analysis (not statutory books). AUT-40.
+model ExpenseEntry {
+  id          String   @id @default(cuid())
+  storeId     String
+  /// Asia/Tokyo calendar date (no time)
+  date        DateTime @db.Date
+  /// JPY integer; always subtracted in margin (never added to revenue)
+  amountYen   Int
+  /// Free-text category e.g. 光熱費 / 消耗品 / その他
+  category    String
+  /// Optional short label
+  label       String?
+  note        String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  store     Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdBy Staff? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([storeId, date])
+  @@index([storeId, createdAt])
+  @@index([createdById])
 }
