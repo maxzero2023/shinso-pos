@@ -103,6 +103,9 @@ model Store {
   ownerLineBinding   OwnerLineBinding?
   ownerLineDeliveryLogs OwnerLineDeliveryLog[]
   ingredients        Ingredient[]
+  suppliers          Supplier[]
+  purchaseOrders     PurchaseOrder[]
+  purchaseOrderAudits PurchaseOrderAudit[]
 
   @@index([brandId])
 }
@@ -161,6 +164,9 @@ model Staff {
   openedShifts Shift[]        @relation("ShiftOpenedBy")
   closedShifts Shift[]        @relation("ShiftClosedBy")
   stockLedgerEntries StockLedger[]
+  purchaseOrdersCreated PurchaseOrder[] @relation("PurchaseOrderCreatedBy")
+  purchaseOrdersUpdated PurchaseOrder[] @relation("PurchaseOrderUpdatedBy")
+  purchaseOrderAudits   PurchaseOrderAudit[]
 
   @@index([storeId])
   @@index([brandId])
@@ -759,6 +765,7 @@ model Ingredient {
   store   Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
   ledger  StockLedger[]
   bomLines BomLine[]
+  purchaseOrderLines PurchaseOrderLine[]
 
   @@unique([storeId, name])
   @@index([storeId])
@@ -798,4 +805,95 @@ model BomLine {
   @@unique([menuItemId, ingredientId])
   @@index([menuItemId])
   @@index([ingredientId])
+}
+
+enum PurchaseOrderStatus {
+  draft
+  ordered
+  received
+  canceled
+}
+
+/// Minimal supplier master (store-scoped). AUT-39.
+model Supplier {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store  Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders PurchaseOrder[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+}
+
+/// Purchase order: draft → ordered → received | canceled. AUT-39.
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  storeId      String
+  supplierId   String?
+  status       PurchaseOrderStatus @default(draft)
+  note         String?
+  createdById  String?
+  updatedById  String?
+  orderedAt    DateTime?
+  receivedAt   DateTime?
+  canceledAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  store     Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  supplier  Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdBy Staff?                @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy Staff?                @relation("PurchaseOrderUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  lines     PurchaseOrderLine[]
+  audits    PurchaseOrderAudit[]
+
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+  @@index([supplierId])
+}
+
+model PurchaseOrderLine {
+  id           String   @id @default(cuid())
+  orderId      String
+  ingredientId String
+  /// Ordered qty (>= 0).
+  orderedQty   Decimal  @db.Decimal(14, 3)
+  /// Received qty (null until receive). May be short or over vs ordered.
+  receivedQty  Decimal? @db.Decimal(14, 3)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  order      PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ingredient Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, ingredientId])
+  @@index([orderId])
+  @@index([ingredientId])
+}
+
+/// Audit trail for PO create / edit / receive / cancel. AUT-39.
+model PurchaseOrderAudit {
+  id        String   @id @default(cuid())
+  storeId   String
+  orderId   String
+  staffId   String?
+  /// create | update | order | receive | cancel
+  action    String
+  summary   String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  store Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  staff Staff?        @relation(fields: [staffId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([staffId])
+  @@index([action])
 }

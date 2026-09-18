@@ -55,6 +55,9 @@ export function AdminClient({
           <Link className="btn secondary" href="/admin/inventory">
             在庫管理 →
           </Link>
+          <Link className="btn secondary" href="/admin/purchasing">
+            調達・発注 →
+          </Link>
         </div>
       </div>
 

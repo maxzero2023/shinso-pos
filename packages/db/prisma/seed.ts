@@ -995,6 +995,17 @@ async function main() {
     `Inventory Store A: ${ingCount} ingredients, ${bomCount} BOM lines; edamame seeded low-stock`
   );
 
+  // AUT-39 / AUT-102–105: Purchasing — default supplier + optional draft from low-stock
+  const supplierA = await prisma.supplier.create({
+    data: { storeId: store.id, name: "デフォルト仕入先" },
+  });
+  const supplierB = await prisma.supplier.create({
+    data: { storeId: storeB.id, name: "デフォルト仕入先" },
+  });
+  // Demo draft left for UI path; suggestions API will show edamame (onHand 1000 < 1500 → qty 500)
+  console.log(
+    `Purchasing: suppliers A=${supplierA.name}, B=${supplierB.name}; edamame suggestedQty=500`
+  );
 
   // AUT-37 / AUT-96: Store B minimal isolated menu + tables
   const areaB = await prisma.area.create({
