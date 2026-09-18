@@ -1,19 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { LocaleProvider, useLocale } from "@/lib/i18n/LocaleProvider";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type MenuCategory = {
   id: string;
   name: string;
+  displayName?: string;
   items: Array<{
     id: string;
     name: string;
+    displayName?: string;
     priceYen: number;
     description?: string | null;
   }>;
 };
 
-export function QrClient({ token }: { token: string }) {
+function QrClientInner({ token }: { token: string }) {
+  const { locale, t, ready } = useLocale();
   const [tableCode, setTableCode] = useState("");
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [checkTotal, setCheckTotal] = useState<number | null>(null);
@@ -21,17 +26,23 @@ export function QrClient({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [noOpenCheck, setNoOpenCheck] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const menuRes = await fetch(`/api/qr/${token}/menu`);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    setNoOpenCheck(false);
+    try {
+      const menuRes = await fetch(`/api/qr/${token}/menu?locale=${locale}`);
       const menuData = await menuRes.json();
       if (!menuRes.ok) {
-        setError(menuData.error ?? "メニュー取得失敗");
+        setError(menuData.error ?? t("menuLoadFailed"));
+        setCategories([]);
         return;
       }
       setTableCode(menuData.table.code);
-      setCategories(menuData.categories);
+      setCategories(menuData.categories ?? []);
 
       const checkRes = await fetch(`/api/qr/${token}/check`);
       const checkData = await checkRes.json();
@@ -39,10 +50,22 @@ export function QrClient({ token }: { token: string }) {
         setCheckTotal(checkData.check.totalYen);
         setCheckId(checkData.check.id);
       } else if (checkRes.status === 409) {
-        setError(checkData.error);
+        setNoOpenCheck(true);
+        setCheckId(null);
+        setCheckTotal(null);
+        setError(t("noOpenCheck"));
       }
-    })();
-  }, [token]);
+    } catch {
+      setError(t("menuLoadFailed"));
+    } finally {
+      setLoading(false);
+    }
+  }, [token, locale, t]);
+
+  useEffect(() => {
+    if (!ready) return;
+    void load();
+  }, [ready, load]);
 
   function bump(id: string, delta: number) {
     setCart((c) => {
@@ -56,6 +79,10 @@ export function QrClient({ token }: { token: string }) {
     setMsg("");
     const entries = Object.entries(cart);
     if (!entries.length) return;
+    if (noOpenCheck) {
+      setError(t("noOpenCheck"));
+      return;
+    }
     for (const [menuItemId, qty] of entries) {
       const res = await fetch(`/api/qr/${token}/items`, {
         method: "POST",
@@ -64,72 +91,128 @@ export function QrClient({ token }: { token: string }) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "注文失敗");
+        if (res.status === 409) {
+          setNoOpenCheck(true);
+          setError(t("noOpenCheck"));
+        } else {
+          setError(data.error ?? t("orderFailed"));
+        }
         return;
       }
       setCheckId(data.checkId);
     }
     setCart({});
-    setMsg("ご注文を受け付けました（同一伝票に追加）");
+    setMsg(t("orderAccepted"));
     const checkRes = await fetch(`/api/qr/${token}/check`);
     const checkData = await checkRes.json();
     if (checkRes.ok) setCheckTotal(checkData.check.totalYen);
   }
 
+  if (loading) {
+    return (
+      <div className="mobile-shell stack">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <div style={{ color: "var(--brand)", fontWeight: 800 }}>{t("guestOrder")}</div>
+          <LanguageSwitcher />
+        </div>
+        <div className="card muted">{t("loading")}</div>
+      </div>
+    );
+  }
+
   if (error && !categories.length) {
     return (
-      <div className="mobile-shell">
+      <div className="mobile-shell stack">
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <div style={{ color: "var(--brand)", fontWeight: 800 }}>{t("guestOrder")}</div>
+          <LanguageSwitcher />
+        </div>
         <div className="card" style={{ color: "var(--danger)" }}>
           {error}
         </div>
+        <button className="btn secondary touch-target" type="button" onClick={() => void load()}>
+          {t("retry")}
+        </button>
       </div>
     );
   }
 
   return (
     <div className="mobile-shell stack">
-      <div>
-        <div style={{ color: "var(--brand)", fontWeight: 800 }}>ゲスト注文</div>
-        <h1 style={{ margin: "0.2rem 0" }}>テーブル {tableCode}</h1>
-        {checkId ? (
-          <div className="muted">
-            伝票 {checkId.slice(-6)} / 現在 ¥{(checkTotal ?? 0).toLocaleString()}
-          </div>
-        ) : null}
-      </div>
-      {error ? <div className="card" style={{ color: "var(--danger)" }}>{error}</div> : null}
-      {msg ? <div className="card">{msg}</div> : null}
-      {categories.map((c) => (
-        <div key={c.id} className="card stack">
-          <strong>{c.name}</strong>
-          {c.items.map((item) => (
-            <div key={item.id} className="row" style={{ justifyContent: "space-between" }}>
-              <div>
-                <div>{item.name}</div>
-                <div className="muted">¥{item.priceYen.toLocaleString()}</div>
-              </div>
-              <div className="row">
-                <button className="btn ghost" type="button" onClick={() => bump(item.id, -1)}>
-                  −
-                </button>
-                <span>{cart[item.id] ?? 0}</span>
-                <button className="btn ghost" type="button" onClick={() => bump(item.id, 1)}>
-                  ＋
-                </button>
-              </div>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ color: "var(--brand)", fontWeight: 800 }}>{t("guestOrder")}</div>
+          <h1 style={{ margin: "0.2rem 0" }}>
+            {t("table")} {tableCode}
+          </h1>
+          {checkId ? (
+            <div className="muted">
+              {t("check")} {checkId.slice(-6)} / {t("currentTotal")} ¥
+              {(checkTotal ?? 0).toLocaleString()}
             </div>
-          ))}
+          ) : null}
         </div>
-      ))}
+        <LanguageSwitcher />
+      </div>
+      {error ? (
+        <div className="card" style={{ color: "var(--danger)" }}>
+          {error}
+        </div>
+      ) : null}
+      {msg ? <div className="card">{msg}</div> : null}
+      {!categories.length ? (
+        <div className="card muted">{t("emptyMenu")}</div>
+      ) : (
+        categories.map((c) => (
+          <div key={c.id} className="card stack">
+            <strong>{c.displayName ?? c.name}</strong>
+            {c.items.map((item) => (
+              <div key={item.id} className="row" style={{ justifyContent: "space-between" }}>
+                <div>
+                  <div>{item.displayName ?? item.name}</div>
+                  <div className="muted">¥{item.priceYen.toLocaleString()}</div>
+                </div>
+                <div className="row qty-controls">
+                  <button
+                    className="btn ghost touch-target"
+                    type="button"
+                    aria-label="−"
+                    onClick={() => bump(item.id, -1)}
+                  >
+                    −
+                  </button>
+                  <span aria-label={t("qty")}>{cart[item.id] ?? 0}</span>
+                  <button
+                    className="btn ghost touch-target"
+                    type="button"
+                    aria-label="＋"
+                    onClick={() => bump(item.id, 1)}
+                  >
+                    ＋
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))
+      )}
       <button
-        className="btn"
+        className="btn touch-target"
         type="button"
-        disabled={!Object.keys(cart).length}
-        onClick={submit}
+        disabled={!Object.keys(cart).length || noOpenCheck}
+        onClick={() => void submit()}
         style={{ position: "sticky", bottom: 12 }}
       >
-        カートを注文する
+        {t("submitCart")}
       </button>
     </div>
+  );
+}
+
+export function QrClient({ token }: { token: string }) {
+  return (
+    <LocaleProvider>
+      <QrClientInner token={token} />
+    </LocaleProvider>
   );
 }

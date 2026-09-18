@@ -10,7 +10,16 @@ type Area = {
 type Category = {
   id: string;
   name: string;
-  items: Array<{ id: string; name: string; priceYen: number; active: boolean }>;
+  nameZh?: string | null;
+  nameEn?: string | null;
+  items: Array<{
+    id: string;
+    name: string;
+    nameZh?: string | null;
+    nameEn?: string | null;
+    priceYen: number;
+    active: boolean;
+  }>;
 };
 type Staff = { id: string; email: string; name: string; role: string; active: boolean };
 
@@ -53,14 +62,24 @@ export function AdminClient({
       </div>
 
       <div className="card stack">
-        <h3 style={{ margin: 0 }}>メニュー</h3>
+        <h3 style={{ margin: 0 }}>メニュー（日/中/英）</h3>
+        <p className="muted" style={{ margin: 0 }}>
+          zh/en は seed または PATCH /api/menu/items で更新（Admin 編集 UI は最小表示のみ）
+        </p>
         {categories.map((c) => (
           <div key={c.id}>
-            <strong>{c.name}</strong>
+            <strong>
+              {c.name}
+              {c.nameZh ? ` / ${c.nameZh}` : ""}
+              {c.nameEn ? ` / ${c.nameEn}` : ""}
+            </strong>
             <ul>
               {c.items.map((i) => (
                 <li key={i.id}>
-                  {i.name} — ¥{i.priceYen.toLocaleString()} {i.active ? "" : "(停止)"}
+                  {i.name}
+                  {i.nameZh ? ` / ${i.nameZh}` : ""}
+                  {i.nameEn ? ` / ${i.nameEn}` : ""} — ¥{i.priceYen.toLocaleString()}{" "}
+                  {i.active ? "" : "(停止)"}
                 </li>
               ))}
             </ul>

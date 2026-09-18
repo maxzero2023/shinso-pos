@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -467,6 +467,11 @@ pnpm test
 | AUT-63 | 支付抽象层 + mock/sandbox/live 切换 |
 | AUT-64 | Stripe JP PaymentIntent + 回写 Check |
 | AUT-65 | PayPay 沙箱/契约 + 模拟器回写 |
+| AUT-36 | 点餐端日/中/英体验打磨 |
+| AUT-90 | i18n 骨架 + 语言切换器 |
+| AUT-93 | 菜单三语字段 + seed |
+| AUT-92 | QR/手持端主路径三语打磨 |
+| AUT-91 | tests + README 演示 |
 | AUT-35 | 微信/支付宝访日客（沙箱模拟器） |
 | AUT-86 | WeChat/Alipay gateway + registry |
 | AUT-87 | Webhook/simulate + settle |
@@ -485,6 +490,28 @@ pnpm test
 | AUT-83 | 日报/周报 digest job |
 | AUT-84 | delivery-logs API |
 | AUT-85 | Admin UI + seed/tests/README |
+
+## 点餐端日/中/英体验（AUT-36）
+
+默认语言 **ja**；`/qr` 与 `/staff` 提供语言切换器（ja / zh / en），偏好保存在浏览器 `localStorage`（`shinso_locale`），不影响服务端账务。
+
+菜单模型：`MenuCategory` / `MenuItem` 增加可空字段 `nameZh` / `nameEn`；`name` 仍为日文主名。API 按 `?locale=` 或 `Accept-Language` 返回 `displayName`（回退：目标语言 → `name` → 其余语言字段）。
+
+### 演示路径
+
+1. `pnpm db:migrate` → `pnpm db:seed` → `pnpm dev`
+2. 登录 `floor@shinso.demo` / `demo1234` → POS 开台
+3. 发行 QR → 打开 `/qr/[token]` → 右上角切换 **日本語 / 中文 / EN** → 浏览菜单（菜名随语言变化）→ 加购下单（同一 check）
+4. 未开台时访问 QR：三语均提示找服务员（`noOpenCheck`）
+5. `/staff` 手持：切换语言后抽查菜单与「无开台」提示；下单仍走同一 open check
+6. Admin `/admin` 菜单区只读展示日/中/英名；编辑 zh/en 可用 `PATCH /api/menu/items`（body: `{ id, nameZh?, nameEn? }`）或改 seed
+
+### 验收要点
+
+- 默认日文；切换无关键文案
+- 空态 / 加载 / 错误 / 无 open check 三语覆盖
+- Check 同单、厨票、结账语义不变
+- 触控热区 ≥ 44px；品牌色不变
 
 ## 明确不做（本 MVP）
 

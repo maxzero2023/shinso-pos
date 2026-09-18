@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { LocaleProvider, useLocale } from "@/lib/i18n/LocaleProvider";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 type TableRow = {
   id: string;
@@ -14,33 +16,46 @@ type TableRow = {
 type MenuCategory = {
   id: string;
   name: string;
-  items: Array<{ id: string; name: string; priceYen: number }>;
+  displayName?: string;
+  items: Array<{ id: string; name: string; displayName?: string; priceYen: number }>;
 };
 
-export function StaffClient({ name }: { name: string }) {
+function StaffClientInner({ name }: { name: string }) {
+  const { locale, t, ready } = useLocale();
   const [tables, setTables] = useState<TableRow[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
-  const [tableId, setTableId] = useState<string>("");
+  const [tableId, setTableId] = useState("");
   const [checkId, setCheckId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [tablesData, menuData] = await Promise.all([
+        fetch("/api/tables").then((r) => r.json()),
+        fetch(`/api/menu/categories?locale=${locale}`).then((r) => r.json()),
+      ]);
+      setTables(tablesData.tables ?? []);
+      setCategories(menuData.categories ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, [locale]);
 
   useEffect(() => {
-    fetch("/api/tables")
-      .then((r) => r.json())
-      .then((d) => setTables(d.tables ?? []));
-    fetch("/api/menu/categories")
-      .then((r) => r.json())
-      .then((d) => setCategories(d.categories ?? []));
-  }, []);
+    if (!ready) return;
+    void refresh();
+  }, [ready, refresh]);
 
   useEffect(() => {
-    const t = tables.find((x) => x.id === tableId);
-    setCheckId(t?.openCheck?.id ?? null);
+    const tbl = tables.find((x) => x.id === tableId);
+    setCheckId(tbl?.openCheck?.id ?? null);
   }, [tableId, tables]);
 
   async function add(menuItemId: string) {
     if (!checkId) {
-      setMsg("オープン伝票がありません。POSで開台してください。");
+      setMsg(t("openCheckRequired"));
       return;
     }
     const res = await fetch(`/api/checks/${checkId}/items`, {
@@ -50,45 +65,71 @@ export function StaffClient({ name }: { name: string }) {
     });
     const data = await res.json();
     if (!res.ok) {
-      setMsg(data.error ?? "失敗");
+      setMsg(data.error ?? t("failed"));
       return;
     }
-    setMsg("追加しました");
+    setMsg(t("added"));
     const refreshed = await fetch("/api/tables").then((r) => r.json());
     setTables(refreshed.tables ?? []);
   }
 
   return (
     <div className="mobile-shell stack">
-      <div className="row" style={{ justifyContent: "space-between" }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontWeight: 800, color: "var(--brand)" }}>手持ち注文</div>
+          <div style={{ fontWeight: 800, color: "var(--brand)" }}>{t("staffOrder")}</div>
           <div className="muted">{name}</div>
         </div>
-        <Link className="btn ghost" href="/pos">
-          POSへ
-        </Link>
+        <div className="row" style={{ gap: 8 }}>
+          <LanguageSwitcher />
+          <Link className="btn ghost touch-target" href="/pos">
+            {t("toPos")}
+          </Link>
+        </div>
       </div>
       {msg ? <div className="card">{msg}</div> : null}
-      <select className="input" value={tableId} onChange={(e) => setTableId(e.target.value)}>
-        <option value="">テーブル選択</option>
-        {tables.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.areaName} {t.code} ({t.status}
-            {t.openCheck ? ` / ¥${t.openCheck.totalYen}` : ""})
+      {loading ? <div className="card muted">{t("loading")}</div> : null}
+      <select
+        className="input touch-target"
+        value={tableId}
+        onChange={(e) => setTableId(e.target.value)}
+        aria-label={t("selectTable")}
+      >
+        <option value="">{t("selectTable")}</option>
+        {tables.map((tbl) => (
+          <option key={tbl.id} value={tbl.id}>
+            {tbl.areaName} {tbl.code} ({tbl.status}
+            {tbl.openCheck ? ` / ¥${tbl.openCheck.totalYen}` : ""})
           </option>
         ))}
       </select>
-      {categories.map((c) => (
-        <div key={c.id} className="card stack">
-          <strong>{c.name}</strong>
-          {c.items.map((item) => (
-            <button key={item.id} className="btn" type="button" onClick={() => add(item.id)}>
-              {item.name} · ¥{item.priceYen.toLocaleString()}
-            </button>
-          ))}
-        </div>
-      ))}
+      {!loading && !categories.length ? (
+        <div className="card muted">{t("emptyMenu")}</div>
+      ) : (
+        categories.map((c) => (
+          <div key={c.id} className="card stack">
+            <strong>{c.displayName ?? c.name}</strong>
+            {c.items.map((item) => (
+              <button
+                key={item.id}
+                className="btn touch-target"
+                type="button"
+                onClick={() => void add(item.id)}
+              >
+                {item.displayName ?? item.name} · ¥{item.priceYen.toLocaleString()}
+              </button>
+            ))}
+          </div>
+        ))
+      )}
     </div>
+  );
+}
+
+export function StaffClient({ name }: { name: string }) {
+  return (
+    <LocaleProvider>
+      <StaffClientInner name={name} />
+    </LocaleProvider>
   );
 }
