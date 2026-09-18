@@ -6,6 +6,8 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  await prisma.ownerLineDeliveryLog.deleteMany();
+  await prisma.ownerLineBinding.deleteMany();
   await prisma.pointAward.deleteMany();
   await prisma.couponIssue.deleteMany();
   await prisma.couponTemplate.deleteMany();
@@ -646,6 +648,180 @@ async function main() {
       });
     }
   }
+
+
+  // AUT-34: yesterday paid checks for daily digest + owner LINE binding
+  const yesterdayYmd = (() => {
+    const todayStart = new Date(`${todayYmd}T00:00:00+09:00`);
+    const y = new Date(todayStart.getTime() - 24 * 60 * 60 * 1000);
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(y);
+  })();
+  const atTokyoYmd = (ymd: string, hm: string) =>
+    new Date(`${ymd}T${hm}:00+09:00`);
+
+  const yesterdaySeeds: PaidSeed[] = [
+    {
+      tableId: t3.id,
+      paidHm: "12:30",
+      guestCount: 2,
+      method: "cash",
+      lines: [
+        { item: edamame, qty: 2 },
+        { item: beer, qty: 2 },
+      ],
+    },
+    {
+      tableId: t5.id,
+      paidHm: "19:15",
+      guestCount: 4,
+      method: "card",
+      lines: [
+        { item: karaage, qty: 2 },
+        { item: beer, qty: 4 },
+        { item: momo, qty: 5 },
+        { item: highball, qty: 2 },
+      ],
+    },
+    {
+      tableId: c2.id,
+      paidHm: "21:00",
+      guestCount: 2,
+      method: "paypay",
+      lines: [
+        { item: momo, qty: 3 },
+        { item: warabi, qty: 1 },
+      ],
+    },
+  ];
+
+  for (const seed of yesterdaySeeds) {
+    const paidAt = atTokyoYmd(yesterdayYmd, seed.paidHm);
+    const openedAt = new Date(paidAt.getTime() - 40 * 60_000);
+    const check = await prisma.check.create({
+      data: {
+        tableId: seed.tableId,
+        status: "paid",
+        guestCount: seed.guestCount,
+        openedAt,
+        closedAt: paidAt,
+        note: `AUT-34 seed: yesterday ${yesterdayYmd}`,
+        items: {
+          create: seed.lines.map((l) => ({
+            menuItemId: l.item.id,
+            name: l.item.name,
+            unitPriceYen: l.item.priceYen,
+            qty: l.qty,
+            status: "fired",
+            modifiers: [],
+          })),
+        },
+      },
+      include: { items: true },
+    });
+    const amountYen = check.items.reduce((s, i) => s + i.unitPriceYen * i.qty, 0);
+    await prisma.payment.create({
+      data: {
+        checkId: check.id,
+        method: seed.method,
+        amountYen,
+        mock: true,
+        status: "succeeded",
+        provider: "mock",
+        paidAt,
+      },
+    });
+  }
+
+  // Also seed 2 paid checks earlier in the same Tokyo week (for weekly digest)
+  const weekDay = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    weekday: "short",
+  }).format(new Date(`${yesterdayYmd}T12:00:00+09:00`));
+  const wdMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  const dayNum = wdMap[weekDay] ?? 1;
+  const daysFromMon = dayNum === 0 ? 6 : dayNum - 1;
+  const mondayStart = new Date(`${yesterdayYmd}T00:00:00+09:00`);
+  mondayStart.setTime(mondayStart.getTime() - daysFromMon * 24 * 60 * 60 * 1000);
+  const mondayYmd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(mondayStart);
+
+  if (mondayYmd !== yesterdayYmd && mondayYmd !== todayYmd) {
+    const midPaidAt = atTokyoYmd(mondayYmd, "18:00");
+    const midCheck = await prisma.check.create({
+      data: {
+        tableId: t4!.id,
+        status: "paid",
+        guestCount: 3,
+        openedAt: new Date(midPaidAt.getTime() - 50 * 60_000),
+        closedAt: midPaidAt,
+        note: `AUT-34 seed: week Monday ${mondayYmd}`,
+        items: {
+          create: [
+            {
+              menuItemId: beer.id,
+              name: beer.name,
+              unitPriceYen: beer.priceYen,
+              qty: 3,
+              status: "fired",
+              modifiers: [],
+            },
+            {
+              menuItemId: momo.id,
+              name: momo.name,
+              unitPriceYen: momo.priceYen,
+              qty: 4,
+              status: "fired",
+              modifiers: [],
+            },
+          ],
+        },
+      },
+      include: { items: true },
+    });
+    const midYen = midCheck.items.reduce((s, i) => s + i.unitPriceYen * i.qty, 0);
+    await prisma.payment.create({
+      data: {
+        checkId: midCheck.id,
+        method: "cash",
+        amountYen: midYen,
+        mock: true,
+        status: "succeeded",
+        provider: "mock",
+        paidAt: midPaidAt,
+      },
+    });
+  }
+
+  const ownerBinding = await prisma.ownerLineBinding.create({
+    data: {
+      storeId: store.id,
+      lineUserId: "sim_owner_line",
+      dailyEnabled: true,
+      weeklyEnabled: true,
+    },
+  });
+  void ownerBinding;
+
+  const yPaid = await prisma.check.count({
+    where: {
+      status: "paid",
+      note: { contains: "AUT-34 seed: yesterday" },
+    },
+  });
+  console.log(
+    `Owner LINE: sim_owner_line (daily/weekly ON); yesterday(${yesterdayYmd}) paid checks: ${yPaid}`
+  );
 
   const memberCount = await prisma.member.count({ where: { storeId: store.id } });
   const tplCount = await prisma.couponTemplate.count({ where: { storeId: store.id } });

@@ -28,8 +28,8 @@ async function login(email: string) {
 
 describe("CRM unit (AUT-79/80)", () => {
   it("defaults LINE_MODE to simulator", () => {
-    expect(getLineMode({} as NodeJS.ProcessEnv)).toBe("simulator");
-    expect(getLineMode({ LINE_MODE: "live" } as NodeJS.ProcessEnv)).toBe("live");
+    expect(getLineMode({} as unknown as NodeJS.ProcessEnv)).toBe("simulator");
+    expect(getLineMode({ LINE_MODE: "live" } as unknown as NodeJS.ProcessEnv)).toBe("live");
   });
 
   it("calcPointsFromAmountYen: ¥100 = 1pt floor", () => {
