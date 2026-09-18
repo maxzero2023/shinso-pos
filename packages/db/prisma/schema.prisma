@@ -102,6 +102,7 @@ model Store {
   pointAwards        PointAward[]
   ownerLineBinding   OwnerLineBinding?
   ownerLineDeliveryLogs OwnerLineDeliveryLog[]
+  ingredients        Ingredient[]
 
   @@index([brandId])
 }
@@ -159,6 +160,7 @@ model Staff {
   auditLogs   CheckAuditLog[]
   openedShifts Shift[]        @relation("ShiftOpenedBy")
   closedShifts Shift[]        @relation("ShiftClosedBy")
+  stockLedgerEntries StockLedger[]
 
   @@index([storeId])
   @@index([brandId])
@@ -200,6 +202,7 @@ model MenuItem {
   category       MenuCategory        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   modifierGroups MenuModifierGroup[]
   checkItems     CheckItem[]
+  bomLines       BomLine[]
 
   @@index([categoryId])
   @@index([active])
@@ -737,4 +740,62 @@ model OwnerLineDeliveryLog {
   @@index([storeId, createdAt])
   @@index([storeId, kind, createdAt])
   @@index([bindingId])
+}
+
+/// Raw material / ingredient per store. AUT-38.
+model Ingredient {
+  id                String   @id @default(cuid())
+  storeId           String
+  name              String
+  /// Simple unit string for MVP: g / ml / pc (no conversion).
+  unit              String
+  lowStockThreshold Decimal  @db.Decimal(14, 3)
+  /// Cost in JPY per unit (integer yen).
+  costYenPerUnit    Int      @default(0)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  store   Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  ledger  StockLedger[]
+  bomLines BomLine[]
+
+  @@unique([storeId, name])
+  @@index([storeId])
+  @@index([storeId, active])
+}
+
+/// Inventory movement. On-hand = sum(qtyDelta). Outbound that would go negative is rejected. AUT-38.
+model StockLedger {
+  id           String   @id @default(cuid())
+  ingredientId String
+  /// Positive = inbound, negative = outbound.
+  qtyDelta     Decimal  @db.Decimal(14, 3)
+  /// Free-text reason: inbound / outbound / adjustment / waste / …
+  reason       String
+  createdById  String?
+  createdAt    DateTime @default(now())
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  createdBy  Staff?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([ingredientId, createdAt])
+  @@index([createdById])
+}
+
+/// Recipe line: MenuItem consumes Ingredient qtyPerItem. AUT-38 / AUT-99.
+model BomLine {
+  id           String   @id @default(cuid())
+  menuItemId   String
+  ingredientId String
+  qtyPerItem   Decimal  @db.Decimal(14, 3)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  menuItem   MenuItem   @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, ingredientId])
+  @@index([menuItemId])
+  @@index([ingredientId])
 }

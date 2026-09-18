@@ -52,6 +52,9 @@ export function AdminClient({
           <Link className="btn secondary" href="/admin/multi-store">
             多店アーキ →
           </Link>
+          <Link className="btn secondary" href="/admin/inventory">
+            在庫管理 →
+          </Link>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/multi-store /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -477,6 +477,7 @@ pnpm test
 | AUT-92 | QR/手持端主路径三语打磨 |
 | AUT-91 | tests + README 演示 |
 | AUT-37 | 多店 Brand/Store MVP |
+| AUT-38 | 在庫 MVP（原料・出入庫・低在庫・BOM） |
 | AUT-94 | Brand/Store モデル + 単店移行 |
 | AUT-95 | 権限 + switch-store |
 | AUT-97 | Admin 多店 UI |
@@ -552,9 +553,53 @@ pnpm test
 
 加盟精算、跨店在庫調撥、加盟承認ワークフロー。
 
+
+## 在庫 MVP：原料・出入庫・低在庫・簡易 BOM（AUT-38）
+
+日本門店向けの在庫 MVP。**現在庫 = StockLedger.qtyDelta の合計**。出庫で負在庫になる場合は **409 で拒否**（サイレント負在庫なし）。単位は `g` / `ml` / `pc`（換算なし）。金額は円整数。全 API はセッションの **activeStoreId** で隔離（AUT-37）。
+
+| モデル | 内容 |
+|--------|------|
+| Ingredient | storeId / name / unit / lowStockThreshold / costYenPerUnit |
+| StockLedger | ingredientId / qtyDelta（+入/−出） / reason / createdBy? |
+| BomLine | menuItemId → ingredientId / qtyPerItem（無効 menuItemId は拒否） |
+
+### デモパス
+
+1. `pnpm db:migrate` → `pnpm db:seed` → `pnpm dev`
+2. `owner@shinso.demo` / `demo1234` → **/admin/inventory**
+3. **原料**タブ：鶏もも肉・生ビール原液・枝豆（冷凍）・串竹（Seed）。枝豆は入庫 3000 → 出庫 2000 で現在庫 1000 &lt; 閾値 1500
+4. **低在庫**タブ（または `GET /api/inventory/low-stock`）で枝豆アラートを確認
+5. **出入庫**：任意原料を入庫 → 出庫。在庫超の出庫は 409
+6. **BOM**：もも / ねぎま / 枝豆 / 生ビール / 唐揚げ定食の簡易レシピを確認
+7. **粗算耗用**：直近 7 日の精算済販売数 × BOM（リアルタイム自動減算ではない）
+8. 店舗隔離：`brandadmin@` で店舗 B に切替 → A の枝豆は見えない
+
+### API
+
+- `GET/POST /api/inventory/ingredients` · `GET/PATCH/DELETE /api/inventory/ingredients/:id`
+- `GET/POST /api/inventory/ledger`（出庫超過 → 409）
+- `GET/POST /api/inventory/bom` · `PATCH/DELETE /api/inventory/bom/:id`
+- `GET /api/inventory/low-stock`
+- `GET /api/inventory/usage-estimate?from=&to=`（任意・Asia/Tokyo 日付）
+
+### 範囲外（本 MVP）
+
+調達承認フロー（AUT-39）、多倉、生産計画、送厨時のリアルタイム理論在庫同期。
+
+### 子課題
+
+| ID | 内容 |
+|----|------|
+| AUT-98 | Ingredient + StockLedger |
+| AUT-99 | 簡易 BOM + 粗算耗用 |
+| AUT-100 | 低在庫 API + Admin UI |
+| AUT-101 | seed / tests / README |
+
+
 ## 明确不做（本 MVP）
 
-库存、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
+完整采购审批、多仓/生产计划、实时理论库存强一致、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
 
 
 ## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）
