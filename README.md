@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）、**外卖半自動進単進厨**（AUT-43）、**营销自动化（休眠召回等）**（AUT-44）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）、**外卖半自動進単進厨**（AUT-43）、**营销自动化（休眠召回等）**（AUT-44）、**套餐能力边界对照表 Minimum/Standard/Full**（AUT-45）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,9 +23,10 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /admin/marketing /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /delivery /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/marketing /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /admin/package-tiers /crm /pos /ops /reservations /delivery /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
+docs/             # 产品文档（套餐能力矩阵 package-tiers.md / .csv）
 docker-compose.yml
 ```
 
@@ -588,6 +589,42 @@ pnpm test
 | AUT-124 | Admin ルール UI（日文） |
 | AUT-125 | seed/tests/README |
 
+
+## 套餐能力边界对照表（Minimum / Standard / Full / AUT-45）
+
+文档 spike：**对外销售与实施讲清各档含/不含/加购**。非定价、非法务合同；不承诺 README「明确不做」中的未规划能力。
+
+### 文档位置
+
+| 文件 | 用途 |
+|------|------|
+| [`docs/package-tiers.md`](docs/package-tiers.md) | 权威对照表 + 锁定决策 + Linear 工单附录 |
+| [`docs/package-tiers.csv`](docs/package-tiers.csv) | 机器可读矩阵 |
+| `/admin/package-tiers` | Admin 只读日文预览（owner/manager） |
+
+### 锁定决策（摘要）
+
+1. **Q1 支付** = 信用卡 + PayPay；WeChat/Alipay 为 Standard/Full **加购**
+2. **Q1 硬件** = T1 + 厨屏 + 打印机；第二套/手持为 **加购**（不降格标准包）
+3. **LINE 必上 Q2**（Standard 起含 LINE 会员 CRM）
+4. **日本单店优先**（多店/供应链在 Full）
+
+### Seed 桌码（AUT-127）
+
+演示桌台统一 **T1–T5 / C1–C4 / P1–P3**。AUT-44 休眠会员 seed 曾误查不存在的桌码 `A1`，已改为 `T1`（与 POS/Staff 一致）。设备码 `T1-01` 为硬件机型，与桌码 T1 分属不同实体。
+
+### 验收说明
+
+- 工程：矩阵文档 + 附录映射 + seed 修复 + 可选 Admin 页
+- **销售/实施签字**：产品侧评审（本 PR 文档 ready for review）
+
+### 子任务
+
+| ID | 内容 |
+|---|---|
+| AUT-126 | 三档能力矩阵文档 |
+| AUT-127 | 工单映射附录 + seed 桌码 A1→T1 |
+
 ## 子任务对照
 
 | Ticket | 内容 |
@@ -611,6 +648,9 @@ pnpm test
 | AUT-42 | 候位 LINE 生产化 / CRM 深度 |
 | AUT-43 | 外卖半自動進単進厨 |
 | AUT-44 | 营销自动化（休眠召回等 2–3 规则） |
+| AUT-45 | 套餐能力边界对照表 Minimum/Standard/Full |
+| AUT-126 | 三档能力矩阵文档 |
+| AUT-127 | 工单映射 + seed 桌码 T1 统一 |
 | AUT-118 | ExternalOrder + 模擬收単 |
 | AUT-119 | 確認マッピング進単進厨 |
 | AUT-121 | 待確認一覧 UI |

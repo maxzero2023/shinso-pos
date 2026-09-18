@@ -777,7 +777,7 @@ async function main() {
   // AUT-44: attach an old paid check to sleeping member (45 days ago) so last activity is stale
   {
     const sleepTable = await prisma.table.findFirst({
-      where: { area: { storeId: store.id }, code: "A1" },
+      where: { area: { storeId: store.id }, code: "T1" }, // AUT-127: table codes are T1–T5 (not A1)
     });
     if (sleepTable) {
       const oldClosed = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
