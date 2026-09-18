@@ -6,6 +6,7 @@ import { StoreSwitcher } from "./StoreSwitcher";
 const links: Array<{ href: string; label: string; roles?: SessionPayload["role"][] }> = [
   { href: "/pos", label: "フロア POS", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/reservations", label: "予約・候位", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/delivery", label: "配達・外卖", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/staff", label: "手持ち", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/kitchen", label: "キッチン", roles: ["brand_admin", "owner", "manager", "kitchen", "floor"] },
   { href: "/devices", label: "デバイス", roles: ["brand_admin", "owner", "manager", "floor"] },

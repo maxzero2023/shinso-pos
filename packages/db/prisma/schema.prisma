@@ -58,6 +58,23 @@ enum KitchenTicketStatus {
   served
 }
 
+enum CheckChannel {
+  dine_in
+  delivery
+}
+
+/// Stub partner channels (no real SDK). AUT-43.
+enum ExternalOrderChannel {
+  demaecan
+  uber_eats_jp
+}
+
+enum ExternalOrderStatus {
+  pending
+  confirmed
+  cancelled
+}
+
 enum PaymentMethod {
   cash
   card
@@ -108,6 +125,7 @@ model Store {
   purchaseOrders     PurchaseOrder[]
   purchaseOrderAudits PurchaseOrderAudit[]
   expenseEntries     ExpenseEntry[]
+  externalOrders     ExternalOrder[]
 
   @@index([brandId])
 }
@@ -171,6 +189,7 @@ model Staff {
   purchaseOrdersUpdated PurchaseOrder[] @relation("PurchaseOrderUpdatedBy")
   purchaseOrderAudits   PurchaseOrderAudit[]
   expenseEntries        ExpenseEntry[]
+  confirmedExternalOrders ExternalOrder[] @relation("ExternalOrderConfirmedBy")
 
   @@index([storeId])
   @@index([brandId])
@@ -213,6 +232,7 @@ model MenuItem {
   modifierGroups MenuModifierGroup[]
   checkItems     CheckItem[]
   bomLines       BomLine[]
+  externalOrderLines ExternalOrderLine[]
 
   @@index([categoryId])
   @@index([active])
@@ -254,6 +274,8 @@ model Check {
   id         String      @id @default(cuid())
   tableId    String
   status     CheckStatus @default(open)
+  /// dine_in (default) or delivery (AUT-43 semi-auto intake)
+  channel    CheckChannel @default(dine_in)
   guestCount Int         @default(1)
   note       String?
   openedAt   DateTime    @default(now())
@@ -287,8 +309,10 @@ model Check {
   reservation    Reservation?
   waitlistTicket WaitlistTicket?
   member         Member?          @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  externalOrder  ExternalOrder?
 
   @@index([tableId])
+  @@index([channel])
   @@index([memberId])
   @@index([status])
   @@index([tableId, status])
@@ -980,4 +1004,59 @@ model ExpenseEntry {
   @@index([storeId, date])
   @@index([storeId, createdAt])
   @@index([createdById])
+}
+
+
+/// Inbound delivery-platform order (pending until staff confirms). AUT-43 / AUT-118.
+/// NEVER auto-creates Check/KitchenTicket on webhook alone (semi-auto only).
+model ExternalOrder {
+  id                   String               @id @default(cuid())
+  storeId              String
+  channel              ExternalOrderChannel
+  /// Partner-side order id (unique per store+channel)
+  externalId           String
+  status               ExternalOrderStatus  @default(pending)
+  customerName         String?
+  customerPhone        String?
+  note                 String?
+  /// Original stub webhook payload
+  rawPayload           Json?
+  /// Last confirm failure message (cleared on successful confirm / mapping edit)
+  mappingError         String?
+  checkId              String?              @unique
+  confirmedAt          DateTime?
+  confirmedByStaffId   String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  check       Check?              @relation(fields: [checkId], references: [id], onDelete: SetNull)
+  confirmedBy Staff?              @relation("ExternalOrderConfirmedBy", fields: [confirmedByStaffId], references: [id], onDelete: SetNull)
+  lines       ExternalOrderLine[]
+
+  @@unique([storeId, channel, externalId])
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+  @@index([confirmedByStaffId])
+}
+
+model ExternalOrderLine {
+  id               String   @id @default(cuid())
+  externalOrderId  String
+  externalItemName String
+  externalItemCode String?
+  qty              Int      @default(1)
+  unitPriceYen     Int      @default(0)
+  /// Mapped POS MenuItem (required before confirm)
+  menuItemId       String?
+  note             String?
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  externalOrder ExternalOrder @relation(fields: [externalOrderId], references: [id], onDelete: Cascade)
+  menuItem      MenuItem?     @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([externalOrderId])
+  @@index([menuItemId])
 }

@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）、**外卖半自動進単進厨**（AUT-43）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /delivery /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -270,6 +270,7 @@ pnpm test
 - 候位 join/call/seat；一桌最多一张 open Check
 - LINE notify stub
 - AUT-42：绑定叫号推送 / 未绑定不推；skip/recall；guest status；seat→Check
+- AUT-43：pending 無 KDS；confirm→Check+tickets；bad map 失敗後修正成功
 - 日营收 / 热销 / 桌均 / 时段 API；void 除外；kitchen 403；空日 0
 
 
@@ -485,6 +486,56 @@ pnpm test
 - LINE 会员：`(storeId, lineUserId)` 唯一；集点仅 paid Check；券核销后不可再核销
 - 老板 LINE 日報：未绑定/开关 OFF 不发送；快照与 AUT-32 报表口径一致；失败最多 1 次重试
 
+
+## 外卖半自動進単進厨（AUT-43）
+
+**半自動策略（必須）**：チャネル stub（出前館 / Uber Eats JP シミュレータ）からの Webhook は **pending ExternalOrder のみ**作成する。店員がメニューマッピングを確認して `POST /api/delivery/orders/:id/confirm` するまで **Check / KitchenTicket は一切作らない**（静默错单禁止）。マッピング失敗時は明確なエラーを返し、部分伝票は作成しない。店員はマッピングを直して再確認できる。
+
+### ドメイン / 不変条件
+
+* `ExternalOrder`（channel stub）→ 行ごとに `MenuItem` マッピング → 確認後 `Check.channel=delivery` + 既存 fire パイプラインで `KitchenTicket`
+* 未確認は厨房に出ない
+* マッピング失敗 → エラー + `mappingError` 保存、Check なし
+* Store-scoped（`activeStoreId`）
+* 配達枠は仮想卓 `DEL-xx`（エリア「配達」）
+
+### 範囲外
+
+* 全自動多平台無確認進単
+* 骑手调度 / 配送追踪
+* 実パートナー SDK
+
+### API
+
+* `POST /api/delivery/simulate/webhook` — シミュレータ受信（pending のみ）
+* `GET /api/delivery/orders?status=pending|confirmed|cancelled`
+* `GET/PATCH /api/delivery/orders/:id` — 詳細 / マッピング編集
+* `POST /api/delivery/orders/:id/confirm` — 確認 → Check + 送厨
+
+### Seed
+
+`pnpm db:seed` で確認待ちデモ 2 件：
+
+* `SEED-DEMAE-001`（出前館・全行マップ済・未確認）
+* `SEED-UE-BADMAP`（Uber Eats・1 行未マップ・確認するとエラー）
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev` → `floor@shinso.demo` / `demo1234`
+2. **/delivery**（側栏「配達・外卖」）→ seed の確認待ち一覧
+3. `SEED-DEMAE-001` を開きマッピング確認 → **確認して厨房へ送る** → **/kitchen** に queued
+4. 「誤マップ受信デモ」または `SEED-UE-BADMAP` → 確認 → エラー表示（Check なし）→ マップ修正 → 再確認成功
+5. （任意）`POST /api/delivery/simulate/webhook` で追加受信
+
+### 子タスク
+
+| ID | 内容 |
+|---|---|
+| AUT-118 | ExternalOrder + 模擬收単 |
+| AUT-119 | 確認マッピング進単進厨 |
+| AUT-121 | 待確認一覧 UI |
+| AUT-120 | seed/tests/README |
+
 ## 子任务对照
 
 | Ticket | 内容 |
@@ -506,6 +557,11 @@ pnpm test
 | AUT-61 | Floor UI：预约日历 + 候位板 + 到店开台 |
 | AUT-62 | Seed + 测试 + README 演示路径 |
 | AUT-42 | 候位 LINE 生产化 / CRM 深度 |
+| AUT-43 | 外卖半自動進単進厨 |
+| AUT-118 | ExternalOrder + 模擬收単 |
+| AUT-119 | 確認マッピング進単進厨 |
+| AUT-121 | 待確認一覧 UI |
+| AUT-120 | seed/tests/README |
 | AUT-117 | 叫号 LINE Messaging + Member 绑定 |
 | AUT-115 | 过号/再呼出 + もうすぐ呼出 |
 | AUT-114 | 顾客状态页 + 看板日文 |

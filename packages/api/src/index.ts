@@ -15,3 +15,4 @@ export * from "./store-scope";
 export * from "./inventory";
 export * from "./purchasing";
 export * from "./finance";
+export * from "./delivery";
