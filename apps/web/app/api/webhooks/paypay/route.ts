@@ -5,6 +5,7 @@ import {
   markPaymentTerminalFailure,
 } from "@shinso/api";
 import { error, json } from "@/lib/http";
+import { tryPrintAfterPay } from "@/lib/hardware";
 import { recordWebhookEvent } from "@/lib/payments";
 
 export const runtime = "nodejs";
@@ -66,6 +67,11 @@ export async function POST(req: Request) {
   const state = (body.state ?? "").toUpperCase();
   if (state === "COMPLETED" || state === "SUCCEEDED") {
     await prisma.$transaction(async (tx) => settleSuccessfulPayment(tx, payment.id));
+    const checkRow = await prisma.check.findUnique({
+      where: { id: payment.checkId },
+      include: { table: { include: { area: true } } },
+    });
+    if (checkRow) await tryPrintAfterPay(checkRow.table.area.storeId, payment.checkId);
   } else if (state === "FAILED") {
     await markPaymentTerminalFailure(prisma, payment.id, "failed", "paypay FAILED");
   } else if (state === "CANCELED" || state === "CANCELLED") {

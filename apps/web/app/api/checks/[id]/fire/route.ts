@@ -1,6 +1,7 @@
 import { prisma } from "@shinso/db";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
+import { tryPrintAfterFire } from "@/lib/hardware";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -40,5 +41,16 @@ export async function POST(_req: Request, ctx: Ctx) {
     return created;
   });
 
-  return json({ ticket }, 201);
+  // Same KitchenTicket → kitchen print (no shadow order). Best-effort.
+  const print = await tryPrintAfterFire(session.storeId, ticket.id);
+  const printJob = print?.ok ? print.data.job : null;
+
+  return json(
+    {
+      ticket,
+      printJob,
+      printError: printJob?.status === "failed" ? printJob.errorMessage : null,
+    },
+    201
+  );
 }

@@ -6,6 +6,7 @@ import {
 } from "@shinso/api";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
+import { tryPrintAfterPay } from "@/lib/hardware";
 
 type Ctx = { params: Promise<{ id: string; paymentId: string }> };
 
@@ -31,10 +32,16 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (payment.provider === "stripe" && payment.providerPaymentId) {
     if (payment.providerPaymentId.startsWith("pi_sim_")) {
       await prisma.$transaction(async (tx) => settleSuccessfulPayment(tx, payment.id));
+      const print = await tryPrintAfterPay(session.storeId, id);
       return json({
         payment: await prisma.payment.findUnique({ where: { id: payment.id } }),
         check: await prisma.check.findUnique({ where: { id } }),
         simulator: true,
+        printJob: print?.ok ? print.data.job : null,
+        printError:
+          print?.ok && print.data.job.status === "failed"
+            ? print.data.job.errorMessage
+            : null,
       });
     }
 
@@ -44,6 +51,16 @@ export async function POST(_req: Request, ctx: Ctx) {
 
     if (intent.status === "succeeded") {
       await prisma.$transaction(async (tx) => settleSuccessfulPayment(tx, payment.id));
+      const print = await tryPrintAfterPay(session.storeId, id);
+      return json({
+        payment: await prisma.payment.findUnique({ where: { id: payment.id } }),
+        check: await prisma.check.findUnique({ where: { id } }),
+        printJob: print?.ok ? print.data.job : null,
+        printError:
+          print?.ok && print.data.job.status === "failed"
+            ? print.data.job.errorMessage
+            : null,
+      });
     } else if (intent.status === "canceled") {
       await markPaymentTerminalFailure(prisma, payment.id, "canceled", "stripe canceled");
     } else {

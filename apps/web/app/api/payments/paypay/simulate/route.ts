@@ -6,6 +6,7 @@ import {
   getPaymentMode,
 } from "@shinso/api";
 import { error, json } from "@/lib/http";
+import { tryPrintAfterPay } from "@/lib/hardware";
 import { getAppUrl } from "@/lib/env";
 
 export async function GET(req: Request) {
@@ -115,6 +116,11 @@ export async function POST(req: Request) {
   if (!whRes.ok) {
     if (outcome === "succeeded") {
       await prisma.$transaction(async (tx) => settleSuccessfulPayment(tx, payment.id));
+      const checkRow = await prisma.check.findUnique({
+        where: { id: payment.checkId },
+        include: { table: { include: { area: true } } },
+      });
+      if (checkRow) await tryPrintAfterPay(checkRow.table.area.storeId, payment.checkId);
     } else {
       await markPaymentTerminalFailure(prisma, payment.id, outcome, `simulate:${outcome}`);
     }

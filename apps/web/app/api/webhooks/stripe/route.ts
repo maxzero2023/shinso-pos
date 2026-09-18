@@ -6,6 +6,7 @@ import {
   createStripeClient,
 } from "@shinso/api";
 import { error, json } from "@/lib/http";
+import { tryPrintAfterPay } from "@/lib/hardware";
 import { recordWebhookEvent } from "@/lib/payments";
 
 export const runtime = "nodejs";
@@ -60,6 +61,11 @@ export async function POST(req: Request) {
 
   if (event.type === "payment_intent.succeeded" && payment) {
     await prisma.$transaction(async (tx) => settleSuccessfulPayment(tx, payment.id));
+    const checkRow = await prisma.check.findUnique({
+      where: { id: payment.checkId },
+      include: { table: { include: { area: true } } },
+    });
+    if (checkRow) await tryPrintAfterPay(checkRow.table.area.storeId, payment.checkId);
   } else if (
     (event.type === "payment_intent.payment_failed" ||
       event.type === "payment_intent.canceled") &&
