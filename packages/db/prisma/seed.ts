@@ -90,20 +90,22 @@ async function main() {
   ];
   await prisma.table.createMany({ data: tableDefs });
 
-  const cat = async (name: string, sortOrder: number) =>
+  const cat = async (name: string, nameZh: string, nameEn: string, sortOrder: number) =>
     prisma.menuCategory.create({
-      data: { storeId: store.id, name, sortOrder },
+      data: { storeId: store.id, name, nameZh, nameEn, sortOrder },
     });
 
-  const appetizers = await cat("前菜", 1);
-  const mains = await cat("主食", 2);
-  const yakitori = await cat("焼鳥", 3);
-  const drinks = await cat("酒類", 4);
-  const desserts = await cat("デザート", 5);
+  const appetizers = await cat("前菜", "前菜", "Appetizers", 1);
+  const mains = await cat("主食", "主食", "Mains", 2);
+  const yakitori = await cat("焼鳥", "烤串", "Yakitori", 3);
+  const drinks = await cat("酒類", "酒类", "Drinks", 4);
+  const desserts = await cat("デザート", "甜品", "Desserts", 5);
 
   type ItemDef = {
     categoryId: string;
     name: string;
+    nameZh?: string;
+    nameEn?: string;
     priceYen: number;
     sortOrder: number;
     description?: string;
@@ -111,14 +113,14 @@ async function main() {
   };
 
   const items: ItemDef[] = [
-    { categoryId: appetizers.id, name: "枝豆", priceYen: 480, sortOrder: 1 },
-    { categoryId: appetizers.id, name: "冷奴", priceYen: 420, sortOrder: 2 },
-    { categoryId: appetizers.id, name: "ポテトサラダ", priceYen: 580, sortOrder: 3 },
-    { categoryId: appetizers.id, name: "キムチ", priceYen: 480, sortOrder: 4 },
-    { categoryId: appetizers.id, name: "刺身三点盛り", priceYen: 1280, sortOrder: 5 },
+    { categoryId: appetizers.id, name: "枝豆", nameZh: "毛豆", nameEn: "Edamame", priceYen: 480, sortOrder: 1 },
+    { categoryId: appetizers.id, name: "冷奴", nameZh: "冷豆腐", nameEn: "Chilled tofu", priceYen: 420, sortOrder: 2 },
+    { categoryId: appetizers.id, name: "ポテトサラダ", nameZh: "土豆沙拉", nameEn: "Potato salad", priceYen: 580, sortOrder: 3 },
+    { categoryId: appetizers.id, name: "キムチ", nameZh: "泡菜", nameEn: "Kimchi", priceYen: 480, sortOrder: 4 },
+    { categoryId: appetizers.id, name: "刺身三点盛り", nameZh: "刺身三点拼盘", nameEn: "Sashimi trio", priceYen: 1280, sortOrder: 5 },
     {
       categoryId: mains.id,
-      name: "唐揚げ定食",
+      name: "唐揚げ定食", nameZh: "炸鸡定食", nameEn: "Karaage set",
       priceYen: 980,
       sortOrder: 1,
       modifiers: [
@@ -133,7 +135,7 @@ async function main() {
     },
     {
       categoryId: mains.id,
-      name: "親子丼",
+      name: "親子丼", nameZh: "亲子丼", nameEn: "Oyakodon",
       priceYen: 880,
       sortOrder: 2,
       modifiers: [
@@ -146,11 +148,11 @@ async function main() {
         },
       ],
     },
-    { categoryId: mains.id, name: "焼魚定食", priceYen: 1180, sortOrder: 3 },
-    { categoryId: mains.id, name: "ラーメン", priceYen: 850, sortOrder: 4 },
+    { categoryId: mains.id, name: "焼魚定食", nameZh: "烤鱼定食", nameEn: "Grilled fish set", priceYen: 1180, sortOrder: 3 },
+    { categoryId: mains.id, name: "ラーメン", nameZh: "拉面", nameEn: "Ramen", priceYen: 850, sortOrder: 4 },
     {
       categoryId: yakitori.id,
-      name: "もも",
+      name: "もも", nameZh: "鸡腿肉串", nameEn: "Chicken thigh",
       priceYen: 180,
       sortOrder: 1,
       modifiers: [
@@ -164,14 +166,14 @@ async function main() {
         },
       ],
     },
-    { categoryId: yakitori.id, name: "ねぎま", priceYen: 200, sortOrder: 2 },
-    { categoryId: yakitori.id, name: "つくね", priceYen: 220, sortOrder: 3 },
-    { categoryId: yakitori.id, name: "レバー", priceYen: 180, sortOrder: 4 },
-    { categoryId: yakitori.id, name: "皮", priceYen: 160, sortOrder: 5 },
-    { categoryId: yakitori.id, name: "ハート", priceYen: 180, sortOrder: 6 },
+    { categoryId: yakitori.id, name: "ねぎま", nameZh: "葱鸡串", nameEn: "Negima", priceYen: 200, sortOrder: 2 },
+    { categoryId: yakitori.id, name: "つくね", nameZh: "鸡肉丸", nameEn: "Tsukune", priceYen: 220, sortOrder: 3 },
+    { categoryId: yakitori.id, name: "レバー", nameZh: "鸡肝", nameEn: "Liver", priceYen: 180, sortOrder: 4 },
+    { categoryId: yakitori.id, name: "皮", nameZh: "鸡皮", nameEn: "Skin", priceYen: 160, sortOrder: 5 },
+    { categoryId: yakitori.id, name: "ハート", nameZh: "鸡心", nameEn: "Heart", priceYen: 180, sortOrder: 6 },
     {
       categoryId: drinks.id,
-      name: "生ビール",
+      name: "生ビール", nameZh: "生啤", nameEn: "Draft beer",
       priceYen: 580,
       sortOrder: 1,
       modifiers: [
@@ -184,12 +186,12 @@ async function main() {
         },
       ],
     },
-    { categoryId: drinks.id, name: "ハイボール", priceYen: 480, sortOrder: 2 },
-    { categoryId: drinks.id, name: "日本酒（一合）", priceYen: 650, sortOrder: 3 },
-    { categoryId: drinks.id, name: "レモンサワー", priceYen: 450, sortOrder: 4 },
+    { categoryId: drinks.id, name: "ハイボール", nameZh: "高球威士忌", nameEn: "Highball", priceYen: 480, sortOrder: 2 },
+    { categoryId: drinks.id, name: "日本酒（一合）", nameZh: "日本酒（一合）", nameEn: "Sake (1 go)", priceYen: 650, sortOrder: 3 },
+    { categoryId: drinks.id, name: "レモンサワー", nameZh: "柠檬沙瓦", nameEn: "Lemon sour", priceYen: 450, sortOrder: 4 },
     {
       categoryId: drinks.id,
-      name: "飲み放題（90分）",
+      name: "飲み放題（90分）", nameZh: "畅饮（90分钟）", nameEn: "All-you-can-drink (90 min)",
       priceYen: 1980,
       sortOrder: 5,
       description: "ビール・サワー・ハイボール",
@@ -203,9 +205,9 @@ async function main() {
         },
       ],
     },
-    { categoryId: drinks.id, name: "烏龍茶", priceYen: 300, sortOrder: 6 },
-    { categoryId: desserts.id, name: "わらび餅", priceYen: 480, sortOrder: 1 },
-    { categoryId: desserts.id, name: "アイスクリーム", priceYen: 380, sortOrder: 2 },
+    { categoryId: drinks.id, name: "烏龍茶", nameZh: "乌龙茶", nameEn: "Oolong tea", priceYen: 300, sortOrder: 6 },
+    { categoryId: desserts.id, name: "わらび餅", nameZh: "蕨饼", nameEn: "Warabi mochi", priceYen: 480, sortOrder: 1 },
+    { categoryId: desserts.id, name: "アイスクリーム", nameZh: "冰淇淋", nameEn: "Ice cream", priceYen: 380, sortOrder: 2 },
   ];
 
   for (const def of items) {
@@ -213,6 +215,8 @@ async function main() {
       data: {
         categoryId: def.categoryId,
         name: def.name,
+        nameZh: def.nameZh ?? null,
+        nameEn: def.nameEn ?? null,
         priceYen: def.priceYen,
         sortOrder: def.sortOrder,
         description: def.description,

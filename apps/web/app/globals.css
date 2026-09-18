@@ -210,3 +210,31 @@ button, input, select, textarea { font: inherit; }
   margin: 0;
   color: #111;
 }
+
+
+/* AUT-36: FOH i18n language switcher + touch targets */
+.lang-btn {
+  min-width: 52px;
+  min-height: 44px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.9rem;
+}
+.lang-btn-active {
+  background: var(--brand) !important;
+  color: #fff !important;
+  border-color: var(--brand) !important;
+}
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+}
+.qty-controls {
+  gap: 0.5rem;
+  align-items: center;
+}
+.qty-controls .btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.35rem 0.6rem;
+}
