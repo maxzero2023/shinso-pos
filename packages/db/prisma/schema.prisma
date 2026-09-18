@@ -54,9 +54,11 @@ model Store {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  areas      Area[]
-  staff      Staff[]
-  categories MenuCategory[]
+  areas        Area[]
+  staff        Staff[]
+  categories   MenuCategory[]
+  reservations Reservation[]
+  waitlist     WaitlistTicket[]
 }
 
 model Area {
@@ -83,8 +85,10 @@ model Table {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  area   Area    @relation(fields: [areaId], references: [id], onDelete: Cascade)
-  checks Check[]
+  area         Area             @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  checks       Check[]
+  reservations Reservation[]
+  waitlist     WaitlistTicket[]
 
   @@unique([areaId, code])
   @@index([areaId])
@@ -185,10 +189,12 @@ model Check {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  table          Table           @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  table          Table            @relation(fields: [tableId], references: [id], onDelete: Restrict)
   items          CheckItem[]
   kitchenTickets KitchenTicket[]
   payments       Payment[]
+  reservation    Reservation?
+  waitlistTicket WaitlistTicket?
 
   @@index([tableId])
   @@index([status])
@@ -259,4 +265,73 @@ model Payment {
   check Check @relation(fields: [checkId], references: [id], onDelete: Cascade)
 
   @@index([checkId])
+}
+
+enum ReservationStatus {
+  hold
+  confirmed
+  seated
+  noshow
+  cancelled
+}
+
+enum WaitlistStatus {
+  waiting
+  called
+  seated
+  cancelled
+  expired
+}
+
+model Reservation {
+  id          String            @id @default(cuid())
+  storeId     String
+  tableId     String?
+  partySize   Int
+  startAt     DateTime
+  endAt       DateTime
+  status      ReservationStatus @default(confirmed)
+  guestName   String?
+  guestPhone  String?
+  guestLineId String?
+  note        String?
+  checkId     String?           @unique
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  store Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  table Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  check Check? @relation(fields: [checkId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, startAt])
+  @@index([tableId, status])
+  @@index([status])
+  @@index([storeId, status])
+}
+
+model WaitlistTicket {
+  id          String         @id @default(cuid())
+  storeId     String
+  tableId     String?
+  partySize   Int
+  status      WaitlistStatus @default(waiting)
+  ticketNo    Int
+  guestName   String?
+  guestPhone  String?
+  guestLineId String?
+  note        String?
+  calledAt    DateTime?
+  seatedAt    DateTime?
+  expiresAt   DateTime?
+  checkId     String?        @unique
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  store Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  table Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  check Check? @relation(fields: [checkId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
+  @@index([storeId, ticketNo])
+  @@index([tableId])
 }

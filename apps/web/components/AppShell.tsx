@@ -3,6 +3,7 @@ import type { SessionPayload } from "@shinso/api";
 
 const links: Array<{ href: string; label: string; roles?: SessionPayload["role"][] }> = [
   { href: "/pos", label: "フロア POS", roles: ["owner", "floor"] },
+  { href: "/reservations", label: "予約・候位", roles: ["owner", "floor"] },
   { href: "/staff", label: "手持ち", roles: ["owner", "floor"] },
   { href: "/kitchen", label: "キッチン", roles: ["owner", "kitchen", "floor"] },
   { href: "/admin", label: "管理", roles: ["owner"] },

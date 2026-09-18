@@ -1,9 +1,9 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
-- 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28)
+- 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
 - 品牌色：`#0E8F52`
 - UI：日文优先
 
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /pos /qr/[token] /staff /kitchen + /api/*
+apps/web          # /login /admin /pos /reservations /waitlist /qr/[token] /staff /kitchen + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名
 docker-compose.yml
@@ -70,6 +70,30 @@ Seed 内容：店舗「シンソウデモ店」、3 エリア（カウンター 
 5. `/staff` 手持再追加一道
 6. POS 结账（PayPay mock）→ 桌台 **free**
 
+
+## 预约・候位演示路径（AUT-46）
+
+不变量：**hold / 预约预占 ≠ open Check**；只有「到店开台 / 着席开台」才创建 open Check；一桌最多一张 open Check。时区：**Asia/Tokyo**。LINE 为 stub（`console.log` + `POST /api/notify`）。
+
+### Seed
+
+`pnpm db:seed` 会预置今晚（东京日）若干预约（T1/T2/T4/P1）+ 候位队列（待ち 2 + 呼出中 1）。
+
+### 步骤
+
+1. `pnpm db:seed` → `pnpm dev` → 登录 `floor@shinso.demo` / `demo1234`
+2. 打开 **/reservations**（侧栏「予約・候位」）
+3. **预约日历**：确认今晚预约列表；新建「今晚 19:00 / 4 名 / 指定卓」→ 桌显示预占（**此时无 open Check**）
+4. 点 **到店开台** → 创建 open Check → 桌变 seated → 去 **/pos** 继续 AUT-28 点餐闭环
+5. **候位ボード**：取号，或客人打开 **/waitlist** QR 取号 → 店员 **呼出** → 选空卓 **着席开台**
+6. （可选）`POST /api/notify` 或看服务端 `[notify:stub]` 日志
+
+### 相关 API
+
+- `GET/POST /api/reservations` · `PATCH /api/reservations/:id` · `POST .../cancel` · `POST .../seat`
+- `GET/POST /api/waitlist` · `POST /api/waitlist/:id/call|seat|cancel`
+- `POST /api/notify`（LINE stub）
+
 ## 主要 API
 
 - `POST /api/auth/login` / `POST /api/auth/logout`
@@ -77,6 +101,7 @@ Seed 内容：店舗「シンソウデモ店」、3 エリア（カウンター 
 - Floor：`POST /api/tables/:id/open`、`POST /api/checks/:id/items|fire|pay|split`、`GET /api/tables/:id/qr-token`
 - Guest QR：`/api/qr/:token/menu|check|items`（无 open check → **409**）
 - Kitchen：`GET /api/kitchen/tickets`、`PATCH /api/kitchen/tickets/:id`
+- 预约/候位：见上方 AUT-46 小节
 
 ## 测试
 
@@ -91,12 +116,17 @@ pnpm test
 - QR 追加到同一 open check
 - 关单后再下单 → 409/400
 - QR HMAC 校验
+- 预约 CRUD/cancel；seat → open Check；hold ≠ open Check
+- 候位 join/call/seat；一桌最多一张 open Check
+- LINE notify stub
 
 ## 领域不变量
 
 - 一张桌同时最多一张 `open` Check
 - QR / Staff / POS 只能往 `open` Check 追加
 - `fire` 后生成厨房票；已结账不可再 fire / 加菜
+- 预约 `hold`/`confirmed` 预占 ≠ `open` Check；仅 seat 创建 Check
+- 已 `cancelled`/`noshow` 预约不可开台；候位叫号超时可过号（默认 10 分）
 
 ## 子任务对照
 
@@ -112,7 +142,13 @@ pnpm test
 | AUT-54 | Guest QR |
 | AUT-55 | Kitchen 出餐板 |
 | AUT-56 | 集成测试 + README |
+| AUT-57 | Prisma Reservation / WaitlistTicket + migrate |
+| AUT-58 | 预约 API CRUD/cancel/seat→open Check |
+| AUT-59 | 候位 API join/call/seat |
+| AUT-60 | LINE notify stub 触发点 |
+| AUT-61 | Floor UI：预约日历 + 候位板 + 到店开台 |
+| AUT-62 | Seed + 测试 + README 演示路径 |
 
 ## 明确不做（本 MVP）
 
-真实支付网关、库存、CRM/LINE、排班、BI、原生 App、硬件驱动、营销官网。
+真实支付网关、库存、完整 CRM、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网。LINE 本单仅为 stub。
