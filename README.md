@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）、**外卖半自動進単進厨**（AUT-43）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）、**外卖半自動進単進厨**（AUT-43）、**营销自动化（休眠召回等）**（AUT-44）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /delivery /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/marketing /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /delivery /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -536,6 +536,58 @@ pnpm test
 | AUT-121 | 待確認一覧 UI |
 | AUT-120 | seed/tests/README |
 
+
+## 营销自动化（休眠召回等 / AUT-44）
+
+**プリセット 2〜3 ルール**（完全 CDP / 無限ルールビルダー / クロスチャネル归因ではない）。LINE 会員のみ・`marketingOptIn` 同意者のみ触达。
+
+### ルール種別
+
+| type | 説明 | 主な params |
+|------|------|-------------|
+| `sleep_recall` | N 日来店なし（paid Check / PointAward） | `inactiveDays`（既定 30） |
+| `coupon_nudge` | 未使用クーポンまたは低ポイント | `lowPointsThreshold`（既定 20）、`requireUnusedCoupon` |
+| `welcome` | 直近 N 日で新規バインド | `welcomeWithinDays`（既定 3） |
+
+### 不変条件
+
+* `MarketingRule(storeId, type, enabled, params JSON, frequencyDays)`
+* 無効ルール → 送信しない（`skipped_disabled` ログ）
+* 同一 rule+member が `frequencyDays` 内に再送 → `skipped_freq`
+* `Member.marketingOptIn=false` → マッチ対象外（オプトアウト）
+
+### API
+
+* `GET /api/crm/marketing/rules` — プリセット一覧（無ければ自動作成）
+* `PATCH /api/crm/marketing/rules/:id` — `{ enabled?, frequencyDays?, params? }`
+* `GET /api/crm/marketing/logs?limit=`
+* `POST /api/crm/marketing/run` — `{ ruleId? }` 手動実行（LINE stub 実送 + MarketingSendLog）
+
+### Seed
+
+* `sim_demo_sleeping`（休眠一郎）— 約 45 日前の paid Check、`marketingOptIn=true`
+* `sim_demo_optout`（拒否花）— 同様に休眠だが `marketingOptIn=false`（コントロール）
+* `sim_demo_welcome`（新規次郎）— ウェルカム対象
+* 3 ルール（sleep_recall / coupon_nudge / welcome）有効
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev` → `owner@shinso.demo` / `demo1234`
+2. **/admin/marketing**（側栏「マーケ」）→ ルール一覧
+3. 「休眠会員の再来店リコール」→ **このルールを実行** → 送信ログに `休眠一郎` / 送信済
+4. もう一度実行 → `頻度スキップ`（`skipped_freq`）
+5. ルールを無効にして実行 → 送信増なし（`skipped_disabled`）
+6. （任意）`POST /api/crm/marketing/run` with `{ "ruleId": "..." }`
+
+### 子タスク
+
+| ID | 内容 |
+|---|---|
+| AUT-122 | MarketingRule モデル + 2–3 ルール |
+| AUT-123 | run + 送信ログ + 頻控 |
+| AUT-124 | Admin ルール UI（日文） |
+| AUT-125 | seed/tests/README |
+
 ## 子任务对照
 
 | Ticket | 内容 |
@@ -558,6 +610,7 @@ pnpm test
 | AUT-62 | Seed + 测试 + README 演示路径 |
 | AUT-42 | 候位 LINE 生产化 / CRM 深度 |
 | AUT-43 | 外卖半自動進単進厨 |
+| AUT-44 | 营销自动化（休眠召回等 2–3 规则） |
 | AUT-118 | ExternalOrder + 模擬收単 |
 | AUT-119 | 確認マッピング進単進厨 |
 | AUT-121 | 待確認一覧 UI |
@@ -796,7 +849,7 @@ pnpm test
 
 ## 明确不做（本 MVP）
 
-完整总账/税务申报/多主体合并（财务为经营概算）、供应商门户/多级审批/ERP 对接、多仓/生产计划、实时理论库存强一致、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
+完整总账/税务申报/多主体合并（财务为经营概算）、供应商门户/多级审批/ERP 对接、多仓/生产计划、实时理论库存强一致、无限规则编排/完整 CDP（AUT-44 为预设 2–3 条）、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
 
 
 ## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）

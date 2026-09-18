@@ -49,6 +49,9 @@ export function AdminClient({
           <Link className="btn secondary" href="/admin/crm">
             CRM / LINE →
           </Link>
+          <Link className="btn secondary" href="/admin/marketing">
+            マーケ自動化 →
+          </Link>
           <Link className="btn secondary" href="/admin/multi-store">
             多店アーキ →
           </Link>

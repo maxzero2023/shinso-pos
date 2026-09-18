@@ -13,6 +13,7 @@ const links: Array<{ href: string; label: string; roles?: SessionPayload["role"]
   { href: "/ops", label: "運営", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/admin/reports", label: "レポート", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/admin/crm", label: "CRM", roles: ["brand_admin", "owner", "manager", "floor"] },
+  { href: "/admin/marketing", label: "マーケ", roles: ["brand_admin", "owner", "manager", "floor"] },
   { href: "/admin", label: "管理", roles: ["brand_admin", "owner", "manager"] },
   { href: "/admin/multi-store", label: "多店", roles: ["brand_admin", "owner", "manager"] },
   { href: "/admin/inventory", label: "在庫", roles: ["brand_admin", "owner", "manager", "floor"] },
