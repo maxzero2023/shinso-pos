@@ -1,9 +1,18 @@
 import { prisma } from "@shinso/db";
-import { joinWaitlistSchema, WAITLIST_CALL_TIMEOUT_MINUTES } from "@shinso/api";
+import {
+  joinWaitlistSchema,
+  WAITLIST_CALL_TIMEOUT_MINUTES,
+  waitlistBusinessDate,
+  waitlistLineMessage,
+} from "@shinso/api";
 import { getSession } from "@/lib/session";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
-import { sendNotify } from "@/lib/notify";
+import {
+  maybeNotifyAlmostCalled,
+  pushWaitlistLine,
+  writeWaitlistAudit,
+} from "@/lib/waitlist-notify";
 
 async function expireStaleCalled(storeId: string) {
   const cutoff = new Date(Date.now() - WAITLIST_CALL_TIMEOUT_MINUTES * 60_000);
@@ -28,22 +37,36 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const activeOnly = url.searchParams.get("active") !== "0";
+  const includeSkipped = url.searchParams.get("skipped") === "1";
+
+  const statuses = includeSkipped
+    ? (["waiting", "called", "skipped"] as ("waiting" | "called" | "skipped")[])
+    : (["waiting", "called"] as ("waiting" | "called")[]);
 
   const waitlist = await prisma.waitlistTicket.findMany({
     where: {
       storeId: session.storeId,
-      ...(activeOnly ? { status: { in: ["waiting", "called"] } } : {}),
+      ...(activeOnly ? { status: { in: statuses } } : {}),
     },
     include: {
       table: { select: { id: true, code: true, seats: true, status: true } },
+      member: { select: { id: true, lineUserId: true, displayName: true, points: true } },
     },
     orderBy: [{ ticketNo: "asc" }],
+  });
+
+  const waitingOrdered = waitlist.filter((t) => t.status === "waiting");
+  const withPosition = waitlist.map((t) => {
+    const position =
+      t.status === "waiting" ? waitingOrdered.findIndex((w) => w.id === t.id) + 1 : null;
+    const lineBound = Boolean(t.guestLineId || t.member?.lineUserId);
+    return { ...t, position: position || null, lineBound };
   });
 
   return json({
     timezone: "Asia/Tokyo",
     callTimeoutMinutes: WAITLIST_CALL_TIMEOUT_MINUTES,
-    waitlist,
+    waitlist: withPosition,
   });
 }
 
@@ -60,8 +83,23 @@ export async function POST(req: Request) {
     storeId = store.id;
   }
 
+  let memberId = parsed.data.memberId ?? null;
+  let guestLineId = parsed.data.guestLineId ?? null;
+
+  if (memberId) {
+    const member = await prisma.member.findFirst({ where: { id: memberId, storeId } });
+    if (!member) return error("会員が見つかりません", 404);
+    guestLineId = guestLineId ?? member.lineUserId;
+  } else if (guestLineId) {
+    const member = await prisma.member.findUnique({
+      where: { storeId_lineUserId: { storeId, lineUserId: guestLineId } },
+    });
+    if (member) memberId = member.id;
+  }
+
+  const businessDate = waitlistBusinessDate();
   const last = await prisma.waitlistTicket.findFirst({
-    where: { storeId },
+    where: { storeId, businessDate },
     orderBy: { ticketNo: "desc" },
     select: { ticketNo: true },
   });
@@ -72,21 +110,60 @@ export async function POST(req: Request) {
       storeId,
       partySize: parsed.data.partySize,
       ticketNo,
+      businessDate,
       guestName: parsed.data.guestName ?? null,
       guestPhone: parsed.data.guestPhone ?? null,
-      guestLineId: parsed.data.guestLineId ?? null,
+      guestLineId,
+      memberId,
       note: parsed.data.note ?? null,
       status: "waiting",
     },
+    include: {
+      member: { select: { id: true, lineUserId: true, displayName: true } },
+    },
   });
 
-  await sendNotify({
-    channel: "line",
-    event: "waitlist.joined",
-    to: ticket.guestLineId ?? ticket.guestPhone ?? ticket.guestName,
-    message: `整理券 ${ticket.ticketNo} 番でお待ちください（${ticket.partySize}名）`,
-    meta: { waitlistId: ticket.id, ticketNo: ticket.ticketNo },
+  await writeWaitlistAudit({
+    storeId,
+    ticketId: ticket.id,
+    staffId: session?.staffId ?? null,
+    action: "join",
+    fromStatus: null,
+    toStatus: "waiting",
+    summary: `取号 #${ticket.ticketNo}`,
+    detail: { memberId, guestLineId },
   });
 
-  return json({ ticket }, 201);
+  const push = await pushWaitlistLine(ticket, "waitlist.joined");
+  await maybeNotifyAlmostCalled(storeId);
+
+  const waitingAhead = await prisma.waitlistTicket.count({
+    where: {
+      storeId,
+      status: "waiting",
+      ticketNo: { lt: ticket.ticketNo },
+      businessDate,
+    },
+  });
+
+  return json(
+    {
+      ticket: {
+        ...ticket,
+        position: waitingAhead + 1,
+        lineBound: Boolean(ticket.guestLineId || ticket.member?.lineUserId),
+        statusUrl: `/waitlist/${ticket.id}`,
+      },
+      notify: {
+        pushed: push.pushed,
+        reason: push.reason,
+        staffHint: push.staffHint ?? null,
+        message: waitlistLineMessage("waitlist.joined", {
+          ticketNo: ticket.ticketNo,
+          partySize: ticket.partySize,
+        }),
+      },
+    },
+    201
+  );
 }

@@ -24,6 +24,7 @@ async function main() {
   await prisma.checkAuditLog.deleteMany();
   await prisma.printJob.deleteMany();
   await prisma.device.deleteMany();
+  await prisma.waitlistAuditLog.deleteMany();
   await prisma.waitlistTicket.deleteMany();
   await prisma.reservation.deleteMany();
   await prisma.payment.deleteMany();
@@ -370,12 +371,14 @@ async function main() {
     ],
   });
 
+  const wlBusinessDate = new Date(`${todayYmd}T00:00:00.000Z`);
   await prisma.waitlistTicket.createMany({
     data: [
       {
         storeId: store.id,
         partySize: 3,
         ticketNo: 1,
+        businessDate: wlBusinessDate,
         status: "waiting",
         guestName: "候位・A組",
         guestPhone: "070-5555-6666",
@@ -384,6 +387,7 @@ async function main() {
         storeId: store.id,
         partySize: 2,
         ticketNo: 2,
+        businessDate: wlBusinessDate,
         status: "waiting",
         guestName: "候位・B組",
       },
@@ -391,6 +395,7 @@ async function main() {
         storeId: store.id,
         partySize: 4,
         ticketNo: 3,
+        businessDate: wlBusinessDate,
         status: "called",
         guestName: "候位・C組",
         calledAt: new Date(),
@@ -716,6 +721,45 @@ async function main() {
   void couponIssued;
   void memberB;
   void tplDessert;
+
+  // AUT-42: member-bound wait ticket for LINE call demo (ticketNo continues business day)
+  const wlBiz = new Date(
+    `${new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date())}T00:00:00.000Z`
+  );
+  const lastWl = await prisma.waitlistTicket.findFirst({
+    where: { storeId: store.id, businessDate: wlBiz },
+    orderBy: { ticketNo: "desc" },
+  });
+  await prisma.waitlistTicket.create({
+    data: {
+      storeId: store.id,
+      partySize: 2,
+      ticketNo: (lastWl?.ticketNo ?? 0) + 1,
+      businessDate: wlBiz,
+      status: "waiting",
+      guestName: "会員・デモ太郎",
+      guestLineId: memberA.lineUserId,
+      memberId: memberA.id,
+      note: "AUT-42 seed: LINE-bound member wait ticket",
+    },
+  });
+  // Unbound control ticket for "no push" demo
+  await prisma.waitlistTicket.create({
+    data: {
+      storeId: store.id,
+      partySize: 3,
+      ticketNo: (lastWl?.ticketNo ?? 0) + 2,
+      businessDate: wlBiz,
+      status: "waiting",
+      guestName: "未連携ゲスト",
+      note: "AUT-42 seed: unbound — call must not fake LINE push",
+    },
+  });
 
   // Attach memberA to one paid seed check + award points (idempotent path)
   const paidForPoints = await prisma.check.findFirst({

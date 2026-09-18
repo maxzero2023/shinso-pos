@@ -25,8 +25,12 @@ type WaitTicket = {
   status: string;
   guestName: string | null;
   guestPhone: string | null;
+  guestLineId?: string | null;
   calledAt: string | null;
   expiresAt: string | null;
+  position?: number | null;
+  lineBound?: boolean;
+  member?: null | { id: string; lineUserId: string; displayName: string | null };
   table: null | { id: string; code: string };
 };
 
@@ -56,6 +60,7 @@ const STATUS_LABEL: Record<string, string> = {
   waiting: "待ち",
   called: "呼出中",
   expired: "期限切れ",
+  skipped: "過号",
 };
 
 export function ReservationsClient() {
@@ -84,7 +89,7 @@ export function ReservationsClient() {
   const refresh = useCallback(async () => {
     const [rRes, wRes, tRes] = await Promise.all([
       fetch(`/api/reservations?date=${date}`),
-      fetch(`/api/waitlist`),
+      fetch(`/api/waitlist?skipped=1`),
       fetch(`/api/tables`),
     ]);
     const rData = await rRes.json();
@@ -204,7 +209,47 @@ export function ReservationsClient() {
     try {
       const res = await fetch(`/api/waitlist/${id}/call`, { method: "POST" });
       const data = await res.json();
-      setMsg(res.ok ? `${data.ticket.ticketNo} 番を呼出（LINE stub）` : (data.error ?? "失敗"));
+      if (!res.ok) {
+        setMsg(data.error ?? "失敗");
+        return;
+      }
+      const hint = data.notify?.pushed
+        ? `LINE 通知 → ${data.notify.to}`
+        : (data.notify?.staffHint ?? "LINE 未連携・店内案内のみ");
+      setMsg(`${data.ticket.ticketNo} 番を呼出 · ${hint}`);
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function skipTicket(id: string) {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/waitlist/${id}/skip`, { method: "POST" });
+      const data = await res.json();
+      setMsg(res.ok ? `${data.ticket.ticketNo} 番を過号` : (data.error ?? "失敗"));
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recallTicket(id: string) {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/waitlist/${id}/recall`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg(data.error ?? "失敗");
+        return;
+      }
+      const hint = data.notify?.pushed
+        ? `LINE 再通知 → ${data.notify.to}`
+        : (data.notify?.staffHint ?? "LINE 未連携・店内案内のみ");
+      setMsg(`${data.ticket.ticketNo} 番を再呼出 · ${hint}`);
       await refresh();
     } finally {
       setBusy(false);
@@ -243,6 +288,7 @@ export function ReservationsClient() {
   const activeCount = reservations.filter((r) => !["cancelled", "noshow"].includes(r.status)).length;
   const waiting = waitlist.filter((w) => w.status === "waiting");
   const called = waitlist.filter((w) => w.status === "called");
+  const skipped = waitlist.filter((w) => w.status === "skipped");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
@@ -380,7 +426,10 @@ export function ReservationsClient() {
       ) : (
         <>
           <div className="card" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            <h3 style={{ margin: 0 }}>取号（客向け QR → /waitlist）</h3>
+            <h3 style={{ margin: 0 }}>取号（客向け QR → /waitlist · ステータス /waitlist/[id]）</h3>
+            <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+              LINE 連携あり → 呼出/もうすぐ呼出をプッシュ。未連携 → 店内案内のみ（誤プッシュなし）
+            </p>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
               <label>
                 人数
@@ -399,18 +448,36 @@ export function ReservationsClient() {
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                 {waiting.map((w) => (
                   <div key={w.id} className="card" style={{ background: "#f4f6f5" }}>
-                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
                       <strong style={{ fontSize: "1.4rem" }}>#{w.ticketNo}</strong>
                       <span>{w.partySize}名</span>
                       <span className="muted">{w.guestName}</span>
+                      {w.position != null ? <span className="muted">順番 {w.position}</span> : null}
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: 999,
+                          background: w.lineBound ? "#e8f5e9" : "#fff3e0",
+                          color: w.lineBound ? "#2e7d32" : "#ef6c00",
+                        }}
+                      >
+                        {w.lineBound ? "LINE連携" : "未連携"}
+                      </span>
                     </div>
-                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                       <button className="btn" type="button" disabled={busy} onClick={() => callTicket(w.id)}>
                         呼出
+                      </button>
+                      <button className="btn ghost" type="button" disabled={busy} onClick={() => skipTicket(w.id)}>
+                        過号
                       </button>
                       <button className="btn ghost" type="button" disabled={busy} onClick={() => cancelTicket(w.id)}>
                         取消
                       </button>
+                      <a className="btn ghost" href={`/waitlist/${w.id}`} style={{ textDecoration: "none" }}>
+                        客画面
+                      </a>
                     </div>
                   </div>
                 ))}
@@ -423,10 +490,21 @@ export function ReservationsClient() {
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                 {called.map((w) => (
                   <div key={w.id} className="card" style={{ background: "#e3f2fd" }}>
-                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
                       <strong style={{ fontSize: "1.4rem" }}>#{w.ticketNo}</strong>
                       <span>{w.partySize}名</span>
                       <span className="muted">呼出中</span>
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: 999,
+                          background: w.lineBound ? "#e8f5e9" : "#fff3e0",
+                          color: w.lineBound ? "#2e7d32" : "#ef6c00",
+                        }}
+                      >
+                        {w.lineBound ? "LINE連携" : "未連携"}
+                      </span>
                     </div>
                     <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                       <select
@@ -443,16 +521,44 @@ export function ReservationsClient() {
                         ))}
                       </select>
                       <button className="btn" type="button" disabled={busy} onClick={() => seatTicket(w.id)}>
-                        着席开台
+                        着席開台
+                      </button>
+                      <button className="btn ghost" type="button" disabled={busy} onClick={() => skipTicket(w.id)}>
+                        過号
                       </button>
                       <button className="btn ghost" type="button" disabled={busy} onClick={() => cancelTicket(w.id)}>
-                        过号/取消
+                        取消
                       </button>
                     </div>
                   </div>
                 ))}
                 {called.length === 0 ? <div className="muted">呼出中なし</div> : null}
               </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>過号 ({skipped.length}) · 再呼出可</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {skipped.map((w) => (
+                <div key={w.id} className="card" style={{ background: "#fff8e1" }}>
+                  <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+                    <strong style={{ fontSize: "1.4rem" }}>#{w.ticketNo}</strong>
+                    <span>{w.partySize}名</span>
+                    <span className="muted">{w.guestName}</span>
+                    <span className="muted">過号</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                    <button className="btn" type="button" disabled={busy} onClick={() => recallTicket(w.id)}>
+                      再呼出
+                    </button>
+                    <button className="btn ghost" type="button" disabled={busy} onClick={() => cancelTicket(w.id)}>
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {skipped.length === 0 ? <div className="muted">過号なし</div> : null}
             </div>
           </div>
         </>

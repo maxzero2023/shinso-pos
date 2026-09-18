@@ -91,6 +91,7 @@ model Store {
   categories    MenuCategory[]
   reservations  Reservation[]
   waitlist      WaitlistTicket[]
+  waitlistAudits WaitlistAuditLog[]
   devices       Device[]
   printJobs     PrintJob[]
   businessDays  BusinessDay[]
@@ -162,6 +163,7 @@ model Staff {
   store       Store?          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   brand       Brand?          @relation(fields: [brandId], references: [id], onDelete: SetNull)
   auditLogs   CheckAuditLog[]
+  waitlistAudits WaitlistAuditLog[]
   openedShifts Shift[]        @relation("ShiftOpenedBy")
   closedShifts Shift[]        @relation("ShiftClosedBy")
   stockLedgerEntries StockLedger[]
@@ -415,6 +417,8 @@ enum WaitlistStatus {
   seated
   cancelled
   expired
+  /// AUT-42: 过号（可重叫）
+  skipped
 }
 
 model Reservation {
@@ -450,24 +454,62 @@ model WaitlistTicket {
   partySize   Int
   status      WaitlistStatus @default(waiting)
   ticketNo    Int
+  /// Asia/Tokyo calendar day for unique ticket numbers (AUT-42)
+  businessDate DateTime      @db.Date
   guestName   String?
   guestPhone  String?
+  /// Direct LINE user id on ticket (may mirror Member.lineUserId)
   guestLineId String?
+  /// Optional CRM member bind (AUT-42)
+  memberId    String?
   note        String?
+  /// Public opaque token for guest status page
+  publicToken String         @unique @default(cuid())
   calledAt    DateTime?
   seatedAt    DateTime?
+  skippedAt   DateTime?
   expiresAt   DateTime?
+  /// Once-only almost-call notify (position <= N)
+  almostCalledAt DateTime?
   checkId     String?        @unique
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
-  store Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  table Table? @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  check Check? @relation(fields: [checkId], references: [id], onDelete: SetNull)
+  store  Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  table  Table?             @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  check  Check?             @relation(fields: [checkId], references: [id], onDelete: SetNull)
+  member Member?            @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  audits WaitlistAuditLog[]
 
+  @@unique([storeId, businessDate, ticketNo])
   @@index([storeId, status])
+  @@index([storeId, businessDate])
   @@index([storeId, ticketNo])
   @@index([tableId])
+  @@index([memberId])
+}
+
+/// Skip / recall / call audit trail (AUT-42)
+model WaitlistAuditLog {
+  id         String   @id @default(cuid())
+  storeId    String
+  ticketId   String
+  staffId    String?
+  /// call | skip | recall | seat | almost_call | join | cancel
+  action     String
+  fromStatus String?
+  toStatus   String?
+  summary    String
+  detail     Json?
+  createdAt  DateTime @default(now())
+
+  store  Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  ticket WaitlistTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  staff  Staff?         @relation(fields: [staffId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, createdAt])
+  @@index([ticketId, createdAt])
+  @@index([action])
 }
 
 enum DeviceType {
@@ -642,10 +684,11 @@ model Member {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  store       Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  coupons     CouponIssue[]
-  pointAwards PointAward[]
-  checks      Check[]
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  coupons         CouponIssue[]
+  pointAwards     PointAward[]
+  checks          Check[]
+  waitlistTickets WaitlistTicket[]
 
   @@unique([storeId, lineUserId])
   @@index([storeId])

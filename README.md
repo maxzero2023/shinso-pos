@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**第二套机型 / 手持**（AUT-41）、**候位 LINE 生产化**（AUT-42）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）、**点餐端日/中/英**（AUT-36）、**多店 Brand/Store**（AUT-37）、**在庫 MVP**（AUT-38）、**調達・発注**（AUT-39）、**財務分析（コスト粗算・毛利・費用）**（AUT-40）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /admin/inventory /admin/purchasing /admin/finance /admin/multi-store /crm /pos /ops /reservations /waitlist /waitlist/[id] /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -81,7 +81,7 @@ Seed 内容：ブランド「SHINSO Demo」配下に **店舗 A「シンソウ�
 
 ### Seed
 
-`pnpm db:seed` 会预置今晚（东京日）若干预约（T1/T2/T4/P1）+ 候位队列（待ち 2 + 呼出中 1）。
+`pnpm db:seed` 会预置今晚（东京日）若干预约（T1/T2/T4/P1）+ 候位队列（待ち + 呼出中；AUT-42 另含会员绑定/未联动演示票）。
 
 ### 步骤
 
@@ -97,6 +97,42 @@ Seed 内容：ブランド「SHINSO Demo」配下に **店舗 A「シンソウ�
 - `GET/POST /api/reservations` · `PATCH /api/reservations/:id` · `POST .../cancel` · `POST .../seat`
 - `GET/POST /api/waitlist` · `POST /api/waitlist/:id/call|seat|cancel`
 - `POST /api/notify`（LINE stub）
+
+
+## 候位 LINE 生产化 / CRM 深度（AUT-42）
+
+在 AUT-46 候位 MVP 之上：**叫号/もうすぐ呼出** 走 `packages/api` 的 `sendLineMessage`（`LINE_MODE=simulator|live`；simulator 仅 stub 日志；live payload 形状预留）。**仅当整理券有 `guestLineId` 或关联 Member 时推送**；未绑定 → 店内提示、**绝不误推**。
+
+### Seed
+
+`pnpm db:seed` 在营业日候位队列外追加：
+
+- **会員・デモ太郎**（`sim_demo_taro` / Member 绑定）→ 呼出时 LINE stub 可达
+- **未連携ゲスト** → 呼出 `notify.pushed=false` + staffHint
+
+### 演示路径
+
+1. `pnpm db:seed` → `pnpm dev` → `floor@shinso.demo` / `demo1234`
+2. **/waitlist** 取号（可填 `sim_demo_taro`）→ 跳转 **/waitlist/[id]** 看番号・順番・状態（日本語）
+3. **/reservations** → **候位ボード**：确认「LINE連携 / 未連携」バッジ
+4. **呼出** 绑定票 → 服务端 `[line:messaging:stub]` + 响应 `notify.pushed=true`
+5. **呼出** 未绑定票 → `pushed=false`、staffHint「未連携のためプッシュしません」
+6. **過号** → status `skipped` → **再呼出** → 回到 `called`（`WaitlistAuditLog`）
+7. 选空卓 **着席開台** → open Check（可进 `/pos`）
+8. 队列前列（position≤2）绑定票会收到一次 **もうすぐ呼出**（`almostCalledAt`）
+
+### API（增量）
+
+- `POST /api/waitlist/:id/skip` · `POST /api/waitlist/:id/recall`
+- `GET /api/waitlist/:id/status`（公开・客态）
+- `GET /api/waitlist?skipped=1`（ボード用・含過号）
+- 叫号/着席响应含 `notify: { pushed, reason, staffHint, to }`
+
+### 不变量
+
+- 营业日（Asia/Tokyo）内 `(storeId, businessDate, ticketNo)` 唯一
+- 未绑定不推送；过号可重叫并写审计
+- 入座仍走既有 seat → open Check
 
 
 ## 支付（信用卡 + PayPay / AUT-29 · 微信/支付宝 / AUT-35）
@@ -215,7 +251,7 @@ Seed 内容：ブランド「SHINSO Demo」配下に **店舗 A「シンソウ�
 - Floor：`POST /api/tables/:id/open`、`POST /api/checks/:id/items|fire|pay|split`、`GET /api/tables/:id/qr-token`
 - Guest QR：`/api/qr/:token/menu|check|items`（无 open check → **409**）
 - Kitchen：`GET /api/kitchen/tickets`、`PATCH /api/kitchen/tickets/:id`
-- 预约/候位：见上方 AUT-46 小节
+- 预约/候位：见上方 AUT-46 / AUT-42 小节
 
 ## 测试
 
@@ -233,6 +269,7 @@ pnpm test
 - 预约 CRUD/cancel；seat → open Check；hold ≠ open Check
 - 候位 join/call/seat；一桌最多一张 open Check
 - LINE notify stub
+- AUT-42：绑定叫号推送 / 未绑定不推；skip/recall；guest status；seat→Check
 - 日营收 / 热销 / 桌均 / 时段 API；void 除外；kitchen 403；空日 0
 
 
@@ -468,6 +505,11 @@ pnpm test
 | AUT-60 | LINE notify stub 触发点 |
 | AUT-61 | Floor UI：预约日历 + 候位板 + 到店开台 |
 | AUT-62 | Seed + 测试 + README 演示路径 |
+| AUT-42 | 候位 LINE 生产化 / CRM 深度 |
+| AUT-117 | 叫号 LINE Messaging + Member 绑定 |
+| AUT-115 | 过号/再呼出 + もうすぐ呼出 |
+| AUT-114 | 顾客状态页 + 看板日文 |
+| AUT-116 | seed/tests/README |
 | AUT-63 | 支付抽象层 + mock/sandbox/live 切换 |
 | AUT-64 | Stripe JP PaymentIntent + 回写 Check |
 | AUT-65 | PayPay 沙箱/契约 + 模拟器回写 |
