@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /admin/reports /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
+apps/web          # /login /admin /admin/reports /admin/crm /crm /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -296,6 +296,67 @@ pnpm test
 | AUT-76 | 报表查询层：日营收/热销/桌均/时段 API |
 | AUT-77 | Admin `/admin/reports` UI + 权限 |
 | AUT-78 | Seed 跨时段已付单 + 测试 + 口径文档 |
+| AUT-79 | Member/Coupon 模型 + LINE bind 沙箱 |
+| AUT-80 | 集点（paid Check）+ 券发放/核销幂等 |
+| AUT-81 | POS/Admin CRM UI + Seed/测试/README |
+
+
+
+
+## LINE 会員 CRM（绑定・集点・簡易券 / AUT-33）
+
+`LINE_MODE=simulator|live`（デフォルト **simulator**）。**実 LINE 認証・Messaging キー不要**。シミュレータは fake `lineUserId`（`sim_*`）で绑定し、Messaging は `[line:messaging:stub]` ログのみ。
+
+| モード | 挙動 |
+|--------|------|
+| `simulator` | lineUserId 省略可（自動生成）。绑定・集点・券核销をローカル完結 |
+| `live` | lineUserId 必須（LIFF/Login 想定）。Messaging は当面 stub |
+
+### ドメイン
+
+- `Member(lineUserId, storeId, points)` — 同一 LINE ユーザーは店舗内ユニーク
+- `CouponTemplate` → `CouponIssue(status: issued|redeemed)`
+- `PointAward` — **paid Check につき 1 回**（`checkId` unique）
+- 集点ルール: **¥100 = 1pt**（切り捨て）。未紐付け Check は集点なし
+- 核销: 成功後の再核销は **409**（不可再核销）
+
+### API
+
+- `POST /api/crm/line/bind` — `{ lineUserId?, displayName? }`
+- `GET /api/crm/members/me?lineUserId=`
+- `GET /api/crm/members`（店員）
+- `GET/POST /api/crm/coupon-templates`（作成は owner）
+- `POST /api/crm/coupons/issue` · `POST /api/crm/coupons/redeem`
+- `GET /api/crm/config`
+- 精算 `POST /api/checks/:id/pay` に任意 `memberId` / `lineUserId` → settle 時に集点
+
+### Seed
+
+`pnpm db:seed` で:
+
+| 項目 | 内容 |
+|------|------|
+| 会員 | デモ太郎 (`sim_demo_taro`) / デモ花子 (`sim_demo_hanako`, 50pt) |
+| テンプレ | ドリンク1杯無料 / デザート割引 |
+| 券 | `CPDEMO01`（issued） |
+| 集点 | 太郎に paid Check 1 件分の PointAward |
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev` → ログイン `floor@shinso.demo` / `demo1234`
+2. **/admin/crm** — シミュレータ绑定、テンプレ作成、券発行（コード表示）
+3. ゲスト **/crm** — 绑定 → マイページでポイント/券確認
+4. **/pos** — 会員を選んで精算 → ポイント増加（¥100=1pt）
+5. POS でクーポンコード核销 → 成功 → **再核销は失敗（409）**
+6. seed 券 `CPDEMO01` でも同様に核销デモ可
+
+### 子タスク
+
+| Ticket | 内容 |
+|--------|------|
+| AUT-79 | Member/Coupon モデル + LINE bind 沙箱 |
+| AUT-80 | 集点規則（paid Check）+ 券发放/核销幂等 |
+| AUT-81 | POS/Admin CRM UI + Seed/测试/README |
 
 
 ## 领域不变量
@@ -305,6 +366,7 @@ pnpm test
 - `fire` 后生成厨房票；已结账不可再 fire / 加菜
 - 预约 `hold`/`confirmed` 预占 ≠ `open` Check；仅 seat 创建 Check
 - 已 `cancelled`/`noshow` 预约不可开台；候位叫号超时可过号（默认 10 分）
+- LINE 会员：`(storeId, lineUserId)` 唯一；集点仅 paid Check；券核销后不可再核销
 
 ## 子任务对照
 
@@ -334,10 +396,13 @@ pnpm test
 | AUT-76 | 报表查询层：日营收/热销/桌均/时段 API |
 | AUT-77 | Admin /admin/reports UI + 权限 |
 | AUT-78 | Seed 跨时段已付单 + 测试 + 口径文档 |
+| AUT-79 | Member/Coupon 模型 + LINE bind 沙箱 |
+| AUT-80 | 集点（paid Check）+ 券发放/核销幂等 |
+| AUT-81 | POS/Admin CRM UI + Seed/测试/README |
 
 ## 明确不做（本 MVP）
 
-库存、完整 CRM、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝（Q2）。LINE 本单仅为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay 密钥（无密钥时用标注的模拟器）。
+库存、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝（Q2）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay 密钥（无密钥时用标注的模拟器）。
 
 
 ## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）

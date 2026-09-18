@@ -12,6 +12,29 @@ import {
 } from "@shinso/api";
 import { tryPrintAfterPay } from "@/lib/hardware";
 
+async function resolveMemberIdForPay(opts: {
+  storeId: string;
+  memberId?: string;
+  lineUserId?: string;
+}): Promise<string | null> {
+  if (opts.memberId) {
+    const m = await prisma.member.findFirst({
+      where: { id: opts.memberId, storeId: opts.storeId },
+    });
+    return m?.id ?? null;
+  }
+  if (opts.lineUserId) {
+    const m = await prisma.member.findUnique({
+      where: {
+        storeId_lineUserId: { storeId: opts.storeId, lineUserId: opts.lineUserId },
+      },
+    });
+    return m?.id ?? null;
+  }
+  return null;
+}
+
+
 export async function startCheckPayment(opts: {
   checkId: string;
   storeId: string;
@@ -73,6 +96,25 @@ export async function startCheckPayment(opts: {
         message: "進行中の支払いがあります",
       },
     };
+  }
+
+  const memberId = await resolveMemberIdForPay({
+    storeId: opts.storeId,
+    memberId: opts.input.memberId,
+    lineUserId: opts.input.lineUserId,
+  });
+  if (opts.input.memberId || opts.input.lineUserId) {
+    if (!memberId) {
+      return { ok: false as const, status: 404, error: "会員が見つかりません" };
+    }
+    if (check.memberId !== memberId) {
+      await prisma.check.update({
+        where: { id: check.id },
+        data: { memberId },
+      });
+      // refresh local copy for settle path
+      (check as { memberId: string | null }).memberId = memberId;
+    }
   }
 
   const created = await createProviderPayment({
