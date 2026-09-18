@@ -9,3 +9,4 @@ coverage
 .DS_Store
 packages/db/prisma/*.db
 packages/db/prisma/*.db-journal
+apps/web/tsconfig.tsbuildinfo

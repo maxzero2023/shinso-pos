@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { StripeCardForm } from "@/components/payments/StripeCardForm";
 
 type TableRow = {
   id: string;
@@ -47,6 +48,21 @@ type CheckDetail = {
   }>;
 };
 
+type PayConfig = {
+  mode: "mock" | "sandbox" | "live";
+  stripe: { configured: boolean; publishableKey: string | null; simulator: boolean };
+  paypay: { configured: boolean; simulator: boolean };
+};
+
+type PendingPayment = {
+  id: string;
+  method: string;
+  status: string;
+  clientSecret?: string | null;
+  redirectUrl?: string | null;
+  providerPayload?: Record<string, unknown>;
+};
+
 export function PosClient() {
   const [tables, setTables] = useState<TableRow[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
@@ -56,6 +72,8 @@ export function PosClient() {
   const [msg, setMsg] = useState("");
   const [payMethod, setPayMethod] = useState("paypay");
   const [busy, setBusy] = useState(false);
+  const [payConfig, setPayConfig] = useState<PayConfig | null>(null);
+  const [pending, setPending] = useState<PendingPayment | null>(null);
 
   const selectedTable = useMemo(
     () => tables.find((t) => t.id === selectedTableId) ?? null,
@@ -79,6 +97,10 @@ export function PosClient() {
     fetch("/api/menu/categories")
       .then((r) => r.json())
       .then((d) => setCategories(d.categories ?? []));
+    fetch("/api/payments/config")
+      .then((r) => r.json())
+      .then((d) => setPayConfig(d))
+      .catch(() => null);
     const t = setInterval(refreshTables, 4000);
     return () => clearInterval(t);
   }, [refreshTables]);
@@ -90,6 +112,7 @@ export function PosClient() {
       setCheck(null);
     }
     setQrUrl(null);
+    setPending(null);
   }, [selectedTable, loadCheck]);
 
   async function openTable() {
@@ -146,10 +169,19 @@ export function PosClient() {
   async function pay() {
     if (!check) return;
     setBusy(true);
+    setMsg("");
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `pos_${check.id}_${Date.now()}`;
     const res = await fetch(`/api/checks/${check.id}/pay`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ method: payMethod, amountYen: check.totalYen }),
+      body: JSON.stringify({
+        method: payMethod,
+        amountYen: check.totalYen,
+        idempotencyKey,
+      }),
     });
     const data = await res.json();
     setBusy(false);
@@ -157,9 +189,34 @@ export function PosClient() {
       setMsg(data.error ?? "精算失敗");
       return;
     }
-    setMsg("精算完了。テーブルが空席になりました。");
-    setCheck(null);
-    await refreshTables();
+
+    const payment = data.payment as PendingPayment & { status: string };
+    if (payment?.status === "succeeded") {
+      setMsg(
+        data.mode === "mock"
+          ? "精算完了（mock）。テーブルが空席になりました。"
+          : "精算完了。テーブルが空席になりました。"
+      );
+      setCheck(null);
+      setPending(null);
+      await refreshTables();
+      return;
+    }
+
+    // Pending gateway flow
+    setPending({
+      id: payment.id,
+      method: payMethod,
+      status: payment.status,
+      clientSecret: data.clientSecret ?? payment.clientSecret,
+      redirectUrl: data.redirectUrl,
+      providerPayload: data.providerPayload,
+    });
+    setMsg(
+      payMethod === "card"
+        ? "カード決済を確定してください（処理中は伝票 open）"
+        : "PayPay 支払いを完了してください（処理中は伝票 open）"
+    );
   }
 
   async function makeQr() {
@@ -173,11 +230,62 @@ export function PosClient() {
     setQrUrl(data.url);
   }
 
+  async function simulatePayPay(outcome: "succeeded" | "failed" | "canceled") {
+    if (!pending || !check) return;
+    setBusy(true);
+    const res = await fetch("/api/payments/paypay/simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paymentId: pending.id, outcome }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setMsg(data.error ?? "シミュレート失敗");
+      return;
+    }
+    if (outcome === "succeeded") {
+      setMsg("PayPay 精算完了（シミュレータ）。テーブルが空席になりました。");
+      setCheck(null);
+      setPending(null);
+      await refreshTables();
+    } else {
+      setMsg(
+        outcome === "failed"
+          ? "PayPay 失敗 — 伝票は open のまま。再試行できます。"
+          : "PayPay 取消 — 伝票は open のまま。再試行できます。"
+      );
+      setPending(null);
+      await loadCheck(check.id);
+    }
+  }
+
   const areas = [...new Set(tables.map((t) => t.areaName))];
+  const modeLabel = payConfig?.mode ?? "mock";
+  const payButtonLabel =
+    modeLabel === "mock"
+      ? "精算（mock）"
+      : payMethod === "card"
+        ? "カード決済を開始"
+        : payMethod === "paypay"
+          ? "PayPay 決済を開始"
+          : "精算";
 
   return (
     <div className="stack">
-      {msg ? <div className="card" style={{ borderColor: "var(--brand)" }}>{msg}</div> : null}
+      {msg ? (
+        <div className="card" style={{ borderColor: "var(--brand)" }}>
+          {msg}
+        </div>
+      ) : null}
+
+      <div className="card muted" style={{ fontSize: "0.85rem" }}>
+        支払いモード: <strong>{modeLabel}</strong>
+        {payConfig?.stripe.simulator ? " · Stripe シミュレータ" : null}
+        {payConfig?.paypay.simulator ? " · PayPay シミュレータ" : null}
+        {payConfig?.stripe.configured ? " · Stripe 接続済" : null}
+        {payConfig?.paypay.configured ? " · PayPay 接続済" : null}
+      </div>
 
       <div className="row" style={{ alignItems: "stretch" }}>
         <div className="card stack" style={{ flex: 1.2, minWidth: 280 }}>
@@ -199,14 +307,10 @@ export function PosClient() {
                       }}
                       onClick={() => setSelectedTableId(t.id)}
                     >
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: "1.2rem" }}>{t.code}</div>
-                        <span className={`badge ${t.status}`}>{t.status}</span>
-                      </div>
-                      <div className="muted" style={{ fontSize: "0.8rem" }}>
-                        {t.openCheck
-                          ? `¥${t.openCheck.totalYen.toLocaleString()} / ${t.openCheck.itemCount}点`
-                          : `${t.seats}席`}
+                      <div style={{ fontWeight: 700 }}>{t.code}</div>
+                      <div className="muted" style={{ fontSize: "0.75rem" }}>
+                        {t.status}
+                        {t.openCheck ? ` · ¥${t.openCheck.totalYen.toLocaleString()}` : ""}
                       </div>
                     </button>
                   ))}
@@ -215,28 +319,22 @@ export function PosClient() {
           ))}
         </div>
 
-        <div className="card stack" style={{ flex: 1, minWidth: 300 }}>
+        <div className="card stack" style={{ flex: 1, minWidth: 280 }}>
           <strong>伝票</strong>
           {!selectedTable ? (
-            <div className="muted">テーブルを選択してください</div>
+            <div className="muted">テーブルを選択</div>
+          ) : !selectedTable.openCheck && !check ? (
+            <button className="btn" disabled={busy} onClick={openTable}>
+              開台（2名）
+            </button>
           ) : !check ? (
-            <div className="stack">
-              <div>
-                {selectedTable.code}（{selectedTable.status}）
-              </div>
-              <button className="btn" disabled={busy} onClick={openTable}>
-                開台する
-              </button>
-            </div>
+            <div className="muted">読込中…</div>
           ) : (
             <div className="stack">
-              <div className="row">
-                <span>
-                  {check.table.code} / <span className="badge open">{check.status}</span>
-                </span>
-                <strong>¥{check.totalYen.toLocaleString()}</strong>
+              <div>
+                {check.table.code} · {check.status} · ¥{check.totalYen.toLocaleString()}
               </div>
-              <table className="table">
+              <table>
                 <tbody>
                   {check.items
                     .filter((i) => i.status !== "void")
@@ -257,23 +355,32 @@ export function PosClient() {
                 </tbody>
               </table>
               <div className="row">
-                <button className="btn" disabled={busy} onClick={fire}>
+                <button className="btn" disabled={busy || !!pending} onClick={fire}>
                   送厨
                 </button>
                 <select
                   className="input"
                   style={{ width: "auto" }}
                   value={payMethod}
+                  disabled={!!pending}
                   onChange={(e) => setPayMethod(e.target.value)}
                 >
                   <option value="paypay">PayPay</option>
                   <option value="cash">現金</option>
                   <option value="card">カード</option>
-                  <option value="wechat">WeChat</option>
-                  <option value="alipay">Alipay</option>
+                  {modeLabel === "mock" ? (
+                    <>
+                      <option value="wechat">WeChat (mock/Q2)</option>
+                      <option value="alipay">Alipay (mock/Q2)</option>
+                    </>
+                  ) : null}
                 </select>
-                <button className="btn secondary" disabled={busy || check.totalYen <= 0} onClick={pay}>
-                  精算（mock）
+                <button
+                  className="btn secondary"
+                  disabled={busy || check.totalYen <= 0 || !!pending}
+                  onClick={pay}
+                >
+                  {payButtonLabel}
                 </button>
                 <button className="btn ghost" onClick={makeQr}>
                   QR発行
@@ -285,6 +392,83 @@ export function PosClient() {
                   <a href={qrUrl} target="_blank" rel="noreferrer">
                     {qrUrl}
                   </a>
+                </div>
+              ) : null}
+
+              {pending?.method === "card" && pending.clientSecret ? (
+                <StripeCardForm
+                  clientSecret={pending.clientSecret}
+                  publishableKey={payConfig?.stripe.publishableKey ?? null}
+                  checkId={check.id}
+                  paymentId={pending.id}
+                  amountYen={check.totalYen}
+                  simulator={
+                    Boolean(payConfig?.stripe.simulator) ||
+                    pending.clientSecret.includes("_secret_sim") || pending.clientSecret.includes("secret_sim")
+                  }
+                  onDone={async (m) => {
+                    setMsg(m);
+                    setPending(null);
+                    setCheck(null);
+                    await refreshTables();
+                  }}
+                  onCancel={async () => {
+                    setMsg("カード取消 — 伝票は open のまま。再試行できます。");
+                    setPending(null);
+                    await loadCheck(check.id);
+                  }}
+                />
+              ) : null}
+
+              {pending?.method === "paypay" ? (
+                <div className="card stack" style={{ borderColor: "var(--brand)" }}>
+                  <strong>PayPay 支払い（処理中）</strong>
+                  <div
+                    className="muted"
+                    style={{ fontSize: "0.85rem" }}
+                  >
+                    <span
+                      style={{
+                        background: "#f39c12",
+                        color: "#000",
+                        padding: "0.15rem 0.4rem",
+                        borderRadius: 4,
+                        fontWeight: 700,
+                        marginRight: 6,
+                      }}
+                    >
+                      PAYPAY SANDBOX SIMULATOR
+                    </span>
+                    商戶キー未設定時はシミュレータで API 形状を再現します。
+                  </div>
+                  {pending.redirectUrl ? (
+                    <a href={pending.redirectUrl} target="_blank" rel="noreferrer">
+                      シミュレータページを開く
+                    </a>
+                  ) : null}
+                  <div className="row">
+                    <button
+                      className="btn"
+                      disabled={busy}
+                      onClick={() => simulatePayPay("succeeded")}
+                    >
+                      成功
+                    </button>
+                    <button
+                      className="btn ghost"
+                      disabled={busy}
+                      onClick={() => simulatePayPay("failed")}
+                    >
+                      失敗（伝票は open のまま）
+                    </button>
+                    <button
+                      className="btn ghost"
+                      disabled={busy}
+                      onClick={() => simulatePayPay("canceled")}
+                    >
+                      取消（伝票は open のまま）
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -300,13 +484,12 @@ export function PosClient() {
               <div style={{ fontWeight: 700 }}>{c.name}</div>
               <div className="row">
                 {c.items.map((item) => {
-                  const firstMod = item.modifierGroups[0]?.modifiers[0];
                   return (
                     <button
                       key={item.id}
                       className="btn ghost"
-                      disabled={busy}
-                      onClick={() => addItem(item.id, firstMod ? [] : [])}
+                      disabled={busy || !!pending}
+                      onClick={() => addItem(item.id, [])}
                       type="button"
                     >
                       {item.name}
