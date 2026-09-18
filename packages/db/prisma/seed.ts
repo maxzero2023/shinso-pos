@@ -6,6 +6,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding SHINSO demo izakaya...");
 
+  await prisma.checkAuditLog.deleteMany();
   await prisma.printJob.deleteMany();
   await prisma.device.deleteMany();
   await prisma.waitlistTicket.deleteMany();
@@ -15,6 +16,8 @@ async function main() {
   await prisma.kitchenTicket.deleteMany();
   await prisma.checkItem.deleteMany();
   await prisma.check.deleteMany();
+  await prisma.shift.deleteMany();
+  await prisma.businessDay.deleteMany();
   await prisma.menuModifier.deleteMany();
   await prisma.menuModifierGroup.deleteMany();
   await prisma.menuItem.deleteMany();
@@ -333,6 +336,34 @@ async function main() {
   });
 
 
+
+  // AUT-74: today's open BusinessDay + Shift (Asia/Tokyo)
+  const owner = await prisma.staff.findFirst({ where: { storeId: store.id, role: "owner" } });
+  const tokyoDateStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const businessDate = new Date(`${tokyoDateStr}T00:00:00.000Z`);
+  const businessDay = await prisma.businessDay.create({
+    data: {
+      storeId: store.id,
+      businessDate,
+      status: "open",
+      openedByStaffId: owner?.id,
+    },
+  });
+  await prisma.shift.create({
+    data: {
+      storeId: store.id,
+      businessDayId: businessDay.id,
+      status: "open",
+      openedByStaffId: owner?.id,
+      note: "デモ開班",
+    },
+  });
+
   // AUT-69: standard hardware pack (T1 + kitchen display + printer)
   await prisma.device.createMany({
     data: [
@@ -376,7 +407,9 @@ async function main() {
   console.log(`Tables: ${tableCount}, Menu items: ${itemCount}`);
   const deviceCount = await prisma.device.count({ where: { storeId: store.id } });
   console.log(`Reservations (tonight): ${reservationCount}, Waitlist: ${waitlistCount}`);
+  const shiftCount = await prisma.shift.count({ where: { storeId: store.id, status: "open" } });
   console.log(`Devices: ${deviceCount} (T1-01 / KDS-01 / PRT-01)`);
+  console.log(`Open shifts: ${shiftCount} (businessDate ${tokyoDateStr})`);
   console.log("Accounts: owner@ / floor@ / kitchen@ shinso.demo  password: demo1234");
 }
 

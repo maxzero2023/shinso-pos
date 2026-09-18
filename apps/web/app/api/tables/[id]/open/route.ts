@@ -1,6 +1,7 @@
 import { prisma } from "@shinso/db";
 import { requireSession, isResponse } from "@/lib/auth-guard";
 import { error, json } from "@/lib/http";
+import { checkShiftAttribution } from "@/lib/ops";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -20,12 +21,16 @@ export async function POST(req: Request, ctx: Ctx) {
   });
   if (existing) return error("すでにオープン中の伝票があります", 409, { checkId: existing.id });
 
+  const attribution = await checkShiftAttribution(session.storeId);
+
   const check = await prisma.$transaction(async (tx) => {
     const created = await tx.check.create({
       data: {
         tableId: table.id,
         guestCount: Number(body.guestCount ?? 1),
         status: "open",
+        businessDayId: attribution.businessDayId,
+        shiftId: attribution.shiftId,
       },
       include: { items: true },
     });

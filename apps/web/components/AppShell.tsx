@@ -7,6 +7,7 @@ const links: Array<{ href: string; label: string; roles?: SessionPayload["role"]
   { href: "/staff", label: "手持ち", roles: ["owner", "floor"] },
   { href: "/kitchen", label: "キッチン", roles: ["owner", "kitchen", "floor"] },
   { href: "/devices", label: "デバイス", roles: ["owner", "floor"] },
+  { href: "/ops", label: "運営", roles: ["owner", "floor"] },
   { href: "/admin", label: "管理", roles: ["owner"] },
 ];
 

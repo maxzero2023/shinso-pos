@@ -37,6 +37,8 @@ type CheckDetail = {
   id: string;
   status: string;
   totalYen: number;
+  exceptionStatus?: string;
+  exceptionNote?: string | null;
   table: { id: string; code: string };
   items: Array<{
     id: string;
@@ -63,7 +65,7 @@ type PendingPayment = {
   providerPayload?: Record<string, unknown>;
 };
 
-export function PosClient({ deviceMode }: { deviceMode?: "t1" } = {}) {
+export function PosClient({ deviceMode, role = "floor" }: { deviceMode?: "t1"; role?: string } = {}) {
   const [tables, setTables] = useState<TableRow[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
@@ -166,6 +168,52 @@ export function PosClient({ deviceMode }: { deviceMode?: "t1" } = {}) {
     setMsg("キッチンに送信しました");
     await loadCheck(check.id);
   }
+
+  async function voidItem(checkItemId: string, itemStatus: string) {
+    if (!check) return;
+    const needsManager = itemStatus !== "draft";
+    if (needsManager && role !== "owner") {
+      setMsg("送厨済の取消は店長/オーナー権限が必要です");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    const res = await fetch(`/api/checks/${check.id}/void-item`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checkItemId, reason: "POS取消" }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setMsg(data.error ?? "取消失敗");
+      return;
+    }
+    setMsg("明細を取消しました（監査ログに記録）");
+    await loadCheck(check.id);
+  }
+
+  async function flagException() {
+    if (!check) return;
+    const note = window.prompt("異常内容を入力", "金額確認 / クレーム");
+    if (!note) return;
+    setBusy(true);
+    setMsg("");
+    const res = await fetch(`/api/checks/${check.id}/flag-exception`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    const data = await res.json();
+    setBusy(false);
+    if (!res.ok) {
+      setMsg(data.error ?? "フラグ失敗");
+      return;
+    }
+    setMsg("異常フラグを付けました → /ops で確認");
+    await loadCheck(check.id);
+  }
+
 
   async function pay() {
     if (!check) return;
@@ -356,13 +404,36 @@ export function PosClient({ deviceMode }: { deviceMode?: "t1" } = {}) {
                           </div>
                         </td>
                         <td>¥{(i.unitPriceYen * i.qty).toLocaleString()}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            style={{ minHeight: 32, padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}
+                            disabled={busy || !!pending}
+                            onClick={() => voidItem(i.id, i.status)}
+                          >
+                            取消
+                          </button>
+                        </td>
                       </tr>
                     ))}
                 </tbody>
               </table>
+              {check.exceptionStatus === "flagged" ? (
+                <div className="muted" style={{ color: "var(--warn)" }}>
+                  異常フラグ中: {check.exceptionNote}
+                </div>
+              ) : null}
               <div className="row">
                 <button className="btn" disabled={busy || !!pending} onClick={fire}>
                   送厨
+                </button>
+                <button
+                  className="btn ghost"
+                  disabled={busy || check.exceptionStatus === "flagged"}
+                  onClick={flagException}
+                >
+                  異常フラグ
                 </button>
                 <select
                   className="input"
