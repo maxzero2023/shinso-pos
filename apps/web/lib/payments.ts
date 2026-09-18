@@ -181,7 +181,9 @@ export async function startCheckPayment(opts: {
   });
 
   if (
-    opts.input.method === "paypay" &&
+    (opts.input.method === "paypay" ||
+      opts.input.method === "wechat" ||
+      opts.input.method === "alipay") &&
     opts.input.simulateOutcome &&
     opts.input.simulateOutcome !== "succeeded"
   ) {

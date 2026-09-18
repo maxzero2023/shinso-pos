@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@shinso/db";
-import { signPayPayWebhook } from "@shinso/api";
+import { signPayPayWebhook, signWeChatWebhook, signAlipayWebhook } from "@shinso/api";
 
 const BASE = process.env.TEST_BASE_URL ?? "http://127.0.0.1:3000";
 
@@ -256,5 +256,282 @@ describe("AUT-29 payments", () => {
     expect(conf.status).toBe(200);
     expect(confData.payment.status).toBe("succeeded");
     expect(confData.check.status).toBe("paid");
+  });
+});
+
+
+describe("AUT-35 WeChat / Alipay", () => {
+  let cookie = "";
+
+  beforeAll(async () => {
+    cookie = await login("floor@shinso.demo");
+  });
+
+  it("WeChat simulate success settles check", async () => {
+    const { checkId, total, tableId } = await openCheckWithItem(cookie);
+    const outTradeNo = `wx_ok_${Date.now()}`;
+    const payment = await prisma.payment.create({
+      data: {
+        checkId,
+        method: "wechat",
+        amountYen: total,
+        mock: true,
+        status: "pending",
+        provider: "wechat",
+        providerPaymentId: outTradeNo,
+        idempotencyKey: `wx_ok_${Date.now()}`,
+        paidAt: null,
+      },
+    });
+
+    const sim = await fetch(`${BASE}/api/payments/wechat/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({ paymentId: payment.id, outcome: "succeeded" }),
+    });
+    const simData = await sim.json();
+    expect(sim.status).toBe(200);
+    expect(simData.payment.status).toBe("succeeded");
+    expect(simData.check.status).toBe("paid");
+
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    expect(table?.status).toBe("free");
+  });
+
+  it("Alipay simulate success settles check", async () => {
+    const { checkId, total, tableId } = await openCheckWithItem(cookie);
+    const outTradeNo = `ali_ok_${Date.now()}`;
+    const payment = await prisma.payment.create({
+      data: {
+        checkId,
+        method: "alipay",
+        amountYen: total,
+        mock: true,
+        status: "pending",
+        provider: "alipay",
+        providerPaymentId: outTradeNo,
+        idempotencyKey: `ali_ok_${Date.now()}`,
+        paidAt: null,
+      },
+    });
+
+    const sim = await fetch(`${BASE}/api/payments/alipay/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({ paymentId: payment.id, outcome: "succeeded" }),
+    });
+    const simData = await sim.json();
+    expect(sim.status).toBe(200);
+    expect(simData.payment.status).toBe("succeeded");
+    expect(simData.check.status).toBe("paid");
+
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    expect(table?.status).toBe("free");
+  });
+
+  it("WeChat simulate failed does NOT close check", async () => {
+    const { checkId, total } = await openCheckWithItem(cookie);
+    const payment = await prisma.payment.create({
+      data: {
+        checkId,
+        method: "wechat",
+        amountYen: total,
+        mock: true,
+        status: "pending",
+        provider: "wechat",
+        providerPaymentId: `wx_fail_${Date.now()}`,
+        idempotencyKey: `wx_fail_${Date.now()}`,
+        paidAt: null,
+      },
+    });
+
+    const sim = await fetch(`${BASE}/api/payments/wechat/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({ paymentId: payment.id, outcome: "failed" }),
+    });
+    const simData = await sim.json();
+    expect(sim.status).toBe(200);
+    expect(simData.payment.status).toBe("failed");
+    expect(simData.check.status).toBe("open");
+    expect(simData.checkStillOpen).toBe(true);
+
+    await fetch(`${BASE}/api/checks/${checkId}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({
+        method: "cash",
+        amountYen: total,
+        idempotencyKey: `wx_cleanup_${Date.now()}`,
+      }),
+    });
+  });
+
+  it("Alipay simulate canceled does NOT close check", async () => {
+    const { checkId, total } = await openCheckWithItem(cookie);
+    const payment = await prisma.payment.create({
+      data: {
+        checkId,
+        method: "alipay",
+        amountYen: total,
+        mock: true,
+        status: "pending",
+        provider: "alipay",
+        providerPaymentId: `ali_cancel_${Date.now()}`,
+        idempotencyKey: `ali_cancel_${Date.now()}`,
+        paidAt: null,
+      },
+    });
+
+    const sim = await fetch(`${BASE}/api/payments/alipay/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({ paymentId: payment.id, outcome: "canceled" }),
+    });
+    const simData = await sim.json();
+    expect(sim.status).toBe(200);
+    expect(simData.payment.status).toBe("canceled");
+    expect(simData.check.status).toBe("open");
+
+    await fetch(`${BASE}/api/checks/${checkId}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({
+        method: "cash",
+        amountYen: total,
+        idempotencyKey: `ali_cleanup_${Date.now()}`,
+      }),
+    });
+  });
+
+  it("WeChat webhook bad signature rejected with 401", async () => {
+    const payload = JSON.stringify({
+      notificationId: `bad_${Date.now()}`,
+      out_trade_no: "wx_missing",
+      trade_state: "SUCCESS",
+    });
+    const wh = await fetch(`${BASE}/api/webhooks/wechat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-wechat-signature": "deadbeef",
+        "x-wechat-timestamp": String(Date.now()),
+      },
+      body: payload,
+    });
+    expect(wh.status).toBe(401);
+  });
+
+  it("Alipay webhook bad signature rejected with 401", async () => {
+    const payload = JSON.stringify({
+      notificationId: `bad_ali_${Date.now()}`,
+      out_trade_no: "ali_missing",
+      trade_status: "TRADE_SUCCESS",
+    });
+    const wh = await fetch(`${BASE}/api/webhooks/alipay`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-alipay-signature": "not-a-valid-sig",
+        "x-alipay-timestamp": String(Date.now()),
+      },
+      body: payload,
+    });
+    expect(wh.status).toBe(401);
+  });
+
+  it("WeChat webhook signed success settles; card/paypay still work", async () => {
+    const { checkId, total, tableId } = await openCheckWithItem(cookie);
+    const outTradeNo = `wx_wh_${Date.now()}`;
+    await prisma.payment.create({
+      data: {
+        checkId,
+        method: "wechat",
+        amountYen: total,
+        mock: true,
+        status: "pending",
+        provider: "wechat",
+        providerPaymentId: outTradeNo,
+        idempotencyKey: `wx_wh_${Date.now()}`,
+        paidAt: null,
+      },
+    });
+
+    const notificationId = `wx_notif_${Date.now()}`;
+    const payload = JSON.stringify({
+      notificationId,
+      out_trade_no: outTradeNo,
+      trade_state: "SUCCESS",
+      total_fee: total,
+      currency: "JPY",
+    });
+    const timestamp = String(Date.now());
+    const secret = process.env.WECHAT_WEBHOOK_SECRET || "wechat-sandbox-simulator-secret";
+    const signature = signWeChatWebhook(payload, secret, timestamp);
+
+    const wh = await fetch(`${BASE}/api/webhooks/wechat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-wechat-signature": signature,
+        "x-wechat-timestamp": timestamp,
+      },
+      body: payload,
+    });
+    expect(wh.status).toBe(200);
+    const check = await prisma.check.findUnique({ where: { id: checkId } });
+    expect(check?.status).toBe("paid");
+    const table = await prisma.table.findUnique({ where: { id: tableId } });
+    expect(table?.status).toBe("free");
+
+    // card still works (mock immediate)
+    const opened = await openCheckWithItem(cookie);
+    const cardPay = await fetch(`${BASE}/api/checks/${opened.checkId}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({
+        method: "card",
+        amountYen: opened.total,
+        idempotencyKey: `card_still_${Date.now()}`,
+      }),
+    });
+    expect(cardPay.status).toBe(200);
+    const cardData = await cardPay.json();
+    expect(cardData.payment.status).toBe("succeeded");
+    expect(cardData.check.status).toBe("paid");
+
+    // paypay still works via simulate
+    const opened2 = await openCheckWithItem(cookie);
+    const pp = await prisma.payment.create({
+      data: {
+        checkId: opened2.checkId,
+        method: "paypay",
+        amountYen: opened2.total,
+        mock: true,
+        status: "pending",
+        provider: "paypay",
+        providerPaymentId: `pp_still_${Date.now()}`,
+        idempotencyKey: `pp_still_${Date.now()}`,
+        paidAt: null,
+      },
+    });
+    const ppSim = await fetch(`${BASE}/api/payments/paypay/simulate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({ paymentId: pp.id, outcome: "succeeded" }),
+    });
+    expect(ppSim.status).toBe(200);
+    const ppData = await ppSim.json();
+    expect(ppData.payment.status).toBe("succeeded");
+    expect(ppData.check.status).toBe("paid");
+  });
+
+  it("GET /api/payments/config exposes wechat/alipay", async () => {
+    const res = await fetch(`${BASE}/api/payments/config`);
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.methods.wechat).toBeTruthy();
+    expect(data.methods.alipay).toBeTruthy();
+    expect(data.features?.wechatAlipay).toBe(true);
   });
 });

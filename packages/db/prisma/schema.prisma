@@ -320,6 +320,8 @@ enum PaymentProvider {
   mock
   stripe
   paypay
+  wechat
+  alipay
 }
 
 model Payment {

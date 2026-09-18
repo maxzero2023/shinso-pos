@@ -3,5 +3,7 @@ export * from "./mode";
 export * from "./mock";
 export * from "./stripe";
 export * from "./paypay";
+export * from "./wechat";
+export * from "./alipay";
 export * from "./settle";
 export * from "./registry";

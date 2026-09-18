@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**微信 / 支付宝访日客**（AUT-35）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -95,19 +95,19 @@ Seed 内容：店舗「シンソウデモ店」、3 エリア（カウンター 
 - `POST /api/notify`（LINE stub）
 
 
-## 支付（信用卡 + PayPay / AUT-29）
+## 支付（信用卡 + PayPay / AUT-29 · 微信/支付宝 / AUT-35）
 
 `PAYMENT_MODE=mock|sandbox|live`（默认 **mock**，保留 AUT-28 即时 mock 结账）。
 
 | 模式 | 行为 |
 |------|------|
 | `mock` | 所有 method 即时成功关单（与 FOH MVP 相同） |
-| `sandbox` | card → Stripe PaymentIntent（无密钥则 **STRIPE SANDBOX SIMULATOR**）；paypay → **PAYPAY SANDBOX SIMULATOR**；cash 仍即时 |
+| `sandbox` | card → Stripe PI（无密钥则 **STRIPE SANDBOX SIMULATOR**）；paypay / wechat / alipay → 标注 **SANDBOX SIMULATOR**；cash 仍即时 |
 | `live` | 需真实商户密钥；失败/取消 **不** 关 Check |
 
 ### 环境变量
 
-见 `.env.example`：`STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET`、`PAYPAY_*`。
+见 `.env.example`：`STRIPE_*`、`PAYPAY_*`、`WECHAT_*`、`ALIPAY_*`、`NEXT_PUBLIC_ENABLE_WECHAT_ALIPAY`（默认 ON）。
 
 ### Stripe テストキー演示（sandbox）
 
@@ -127,33 +127,42 @@ Seed 内容：店舗「シンソウデモ店」、3 エリア（カウンター 
 3. 「成功」→ Check paid；「失敗」「取消」→ Payment failed/canceled、**伝票 open**
 4. またはシミュレータ URL / `POST /api/payments/paypay/simulate`（署名付き webhook → `/api/webhooks/paypay`）
 
+### WeChat / Alipay シミュレータ演示（訪日客 / AUT-35・無商戶キー）
+
+1. `PAYMENT_MODE=sandbox`（WeChat/Alipay キー未設定で可；**不调用真实 API**）
+2. `NEXT_PUBLIC_ENABLE_WECHAT_ALIPAY=true`（默认 ON；`false` で POS ボタン非表示）
+3. POS → **WeChat 微信** または **Alipay 支付宝** → 開始 → 対応 **SANDBOX SIMULATOR** パネル
+4. 「成功」→ Check `paid` / 卓 `free`；「失敗」「取消」→ Payment failed/canceled、**伝票は open のまま**
+5. Webhook：`POST /api/webhooks/wechat` · `POST /api/webhooks/alipay`（HMAC 验签失敗 → **401**）
+6. Simulate：`GET|POST /api/payments/wechat/simulate` · `/api/payments/alipay/simulate`
+
 ### API
 
-- `POST /api/checks/:id/pay` — `{ method, amountYen, idempotencyKey? }`；pending 時は `clientSecret` / `redirectUrl` を返す
+- `POST /api/checks/:id/pay` — `{ method, amountYen, idempotencyKey?, simulateOutcome? }`；pending 時は `clientSecret` / `redirectUrl` を返す
 - `POST /api/checks/:id/payments/:paymentId/confirm|cancel`
-- `POST /api/webhooks/stripe` · `POST /api/webhooks/paypay`（验签 + 幂等）
-- `GET /api/payments/config` · `GET|POST /api/payments/paypay/simulate`
+- `POST /api/webhooks/stripe` · `paypay` · `wechat` · `alipay`（验签 + 幂等）
+- `GET /api/payments/config` · `GET|POST /api/payments/{paypay|wechat|alipay}/simulate`
 
 ### 不变量
 
 - Payment `status ∈ pending|succeeded|failed|canceled`；仅 `succeeded` 时关 Check / free table
 - 同一 `idempotencyKey` 重放不二次扣款；同 Check 同时最多一条 pending 网关支付
-- wechat / alipay 仅 mock；sandbox/live 拒绝（Q2）
+- wechat / alipay 与 card / paypay / cash 并存；失败/取消不误关单
 
 
-## 支払い（クレジットカード + PayPay / AUT-29）
+## 支払い（クレジットカード + PayPay / AUT-29 · WeChat/Alipay / AUT-35）
 
 `PAYMENT_MODE=mock|sandbox|live`（デフォルト **mock**。AUT-28 の即時 mock 精算を維持）。
 
 | モード | 挙動 |
 |--------|------|
 | `mock` | 全 method が即時成功して伝票クローズ（FOH MVP と同じ） |
-| `sandbox` | card → Stripe PaymentIntent（キー無しは **STRIPE SANDBOX SIMULATOR**）；paypay → **PAYPAY SANDBOX SIMULATOR**；cash は即時 |
+| `sandbox` | card → Stripe PI（キー無しは **STRIPE SANDBOX SIMULATOR**）；paypay / wechat / alipay → 标注 **SANDBOX SIMULATOR**；cash は即時 |
 | `live` | 実商戶キー必須；失敗/取消は Check を閉じない |
 
 ### 環境変数
 
-`.env.example` を参照：`STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET`、`PAYPAY_*`。
+`.env.example` を参照：`STRIPE_*`、`PAYPAY_*`、`WECHAT_*`、`ALIPAY_*`、`NEXT_PUBLIC_ENABLE_WECHAT_ALIPAY`（デフォルト ON）。
 
 ### Stripe テストキーデモ（sandbox）
 
@@ -173,18 +182,27 @@ Seed 内容：店舗「シンソウデモ店」、3 エリア（カウンター 
 3. 「成功」→ Check paid；「失敗」「取消」→ Payment failed/canceled、**伝票 open**
 4. またはシミュレータ URL / `POST /api/payments/paypay/simulate`（署名付き webhook → `/api/webhooks/paypay`）
 
+### WeChat / Alipay シミュレータデモ（訪日客 / AUT-35・商戶キー無し）
+
+1. `PAYMENT_MODE=sandbox`（WeChat/Alipay キー未設定で可；**実 API は呼ばない**）
+2. `NEXT_PUBLIC_ENABLE_WECHAT_ALIPAY=true`（デフォルト ON；`false` で POS ボタン非表示）
+3. POS → **WeChat 微信** または **Alipay 支付宝** → 開始 → 対応 **SANDBOX SIMULATOR** パネル
+4. 「成功」→ Check `paid` / 卓 `free`；「失敗」「取消」→ Payment failed/canceled、**伝票は open のまま**
+5. Webhook：`POST /api/webhooks/wechat` · `POST /api/webhooks/alipay`（HMAC 验签失敗 → **401**）
+6. Simulate：`GET|POST /api/payments/wechat/simulate` · `/api/payments/alipay/simulate`
+
 ### API
 
-- `POST /api/checks/:id/pay` — `{ method, amountYen, idempotencyKey? }`；pending 時は `clientSecret` / `redirectUrl`
+- `POST /api/checks/:id/pay` — `{ method, amountYen, idempotencyKey?, simulateOutcome? }`；pending 時は `clientSecret` / `redirectUrl`
 - `POST /api/checks/:id/payments/:paymentId/confirm|cancel`
-- `POST /api/webhooks/stripe` · `POST /api/webhooks/paypay`（验签 + 幂等）
-- `GET /api/payments/config` · `GET|POST /api/payments/paypay/simulate`
+- `POST /api/webhooks/stripe` · `paypay` · `wechat` · `alipay`（验签 + 幂等）
+- `GET /api/payments/config` · `GET|POST /api/payments/{paypay|wechat|alipay}/simulate`
 
 ### 不变量
 
 - Payment `status ∈ pending|succeeded|failed|canceled`；`succeeded` のときのみ Check クローズ / 卓 free
 - 同一 `idempotencyKey` 再送は二重課金しない；同 Check 同時に pending ゲートウェイ支払いは最大 1
-- wechat / alipay は mock のみ；sandbox/live では拒否（Q2）
+- wechat / alipay は card / paypay / cash と并存；失敗/取消は誤って伝票を閉じない
 
 ## 主要 API
 
@@ -449,6 +467,11 @@ pnpm test
 | AUT-63 | 支付抽象层 + mock/sandbox/live 切换 |
 | AUT-64 | Stripe JP PaymentIntent + 回写 Check |
 | AUT-65 | PayPay 沙箱/契约 + 模拟器回写 |
+| AUT-35 | 微信/支付宝访日客（沙箱模拟器） |
+| AUT-86 | WeChat/Alipay gateway + registry |
+| AUT-87 | Webhook/simulate + settle |
+| AUT-88 | POS UI 微信/支付宝 |
+| AUT-89 | tests + README |
 | AUT-67 | Webhook/验签 + 幂等；失败取消不关单 |
 | AUT-66 | POS 结账 UI + README 沙箱演示 |
 | AUT-76 | 报表查询层：日营收/热销/桌均/时段 API |
@@ -465,7 +488,7 @@ pnpm test
 
 ## 明确不做（本 MVP）
 
-库存、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝（Q2）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay 密钥（无密钥时用标注的模拟器）。
+库存、复杂营销自动化、Hot Pepper/食べログ 生产对接、排班、BI、原生 App、硬件驱动、营销官网、微信/支付宝**真实商户对接**（AUT-35 为标注沙箱模拟器）。LINE 会员 MVP 默认 simulator（无真实凭证）；Messaging 为 stub。支付默认 mock；sandbox/live 需 Stripe / PayPay / WeChat / Alipay 密钥（无密钥时用标注的模拟器）。
 
 
 ## 標準ハードウェア包（T1 + 厨屏 + プリンタ / AUT-30）
