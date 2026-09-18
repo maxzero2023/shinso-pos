@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StaffRole {
+  owner
+  floor
+  kitchen
+}
+
+enum TableStatus {
+  free
+  seated
+  ordering
+  billing
+}
+
+enum CheckStatus {
+  open
+  paid
+  void
+}
+
+enum CheckItemStatus {
+  draft
+  fired
+  void
+}
+
+enum KitchenTicketStatus {
+  queued
+  preparing
+  ready
+  served
+}
+
+enum PaymentMethod {
+  cash
+  card
+  paypay
+  wechat
+  alipay
+}
+
+model Store {
+  id        String   @id @default(cuid())
+  name      String
+  timezone  String   @default("Asia/Tokyo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  areas      Area[]
+  staff      Staff[]
+  categories MenuCategory[]
+}
+
+model Area {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  tables Table[]
+
+  @@index([storeId])
+}
+
+model Table {
+  id        String      @id @default(cuid())
+  areaId    String
+  code      String
+  seats     Int         @default(4)
+  status    TableStatus @default(free)
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  area   Area    @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  checks Check[]
+
+  @@unique([areaId, code])
+  @@index([areaId])
+  @@index([status])
+}
+
+model Staff {
+  id           String    @id @default(cuid())
+  storeId      String
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         StaffRole
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([role])
+}
+
+model MenuCategory {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  items MenuItem[]
+
+  @@index([storeId])
+}
+
+model MenuItem {
+  id          String   @id @default(cuid())
+  categoryId  String
+  name        String
+  description String?
+  priceYen    Int
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category       MenuCategory        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  modifierGroups MenuModifierGroup[]
+  checkItems     CheckItem[]
+
+  @@index([categoryId])
+  @@index([active])
+}
+
+model MenuModifierGroup {
+  id          String   @id @default(cuid())
+  menuItemId  String
+  name        String
+  minSelect   Int      @default(0)
+  maxSelect   Int      @default(1)
+  required    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  menuItem  MenuItem       @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  modifiers MenuModifier[]
+
+  @@index([menuItemId])
+}
+
+model MenuModifier {
+  id        String   @id @default(cuid())
+  groupId   String
+  name      String
+  priceYen  Int      @default(0)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  group MenuModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+model Check {
+  id        String      @id @default(cuid())
+  tableId   String
+  status    CheckStatus @default(open)
+  guestCount Int        @default(1)
+  note      String?
+  openedAt  DateTime    @default(now())
+  closedAt  DateTime?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  table          Table           @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  items          CheckItem[]
+  kitchenTickets KitchenTicket[]
+  payments       Payment[]
+
+  @@index([tableId])
+  @@index([status])
+  @@index([tableId, status])
+}
+
+model CheckItem {
+  id         String          @id @default(cuid())
+  checkId    String
+  menuItemId String
+  name       String
+  unitPriceYen Int
+  qty        Int             @default(1)
+  modifiers  Json            @default("[]")
+  seat       Int?
+  status     CheckItemStatus @default(draft)
+  note       String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  check      Check              @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  menuItem   MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Restrict)
+  ticketLines KitchenTicketLine[]
+
+  @@index([checkId])
+  @@index([status])
+}
+
+model KitchenTicket {
+  id        String              @id @default(cuid())
+  checkId   String
+  status    KitchenTicketStatus @default(queued)
+  firedAt   DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  createdAt DateTime            @default(now())
+
+  check Check               @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  lines KitchenTicketLine[]
+
+  @@index([checkId])
+  @@index([status])
+}
+
+model KitchenTicketLine {
+  id             String @id @default(cuid())
+  kitchenTicketId String
+  checkItemId    String
+  qty            Int
+  name           String
+  modifiers      Json   @default("[]")
+
+  kitchenTicket KitchenTicket @relation(fields: [kitchenTicketId], references: [id], onDelete: Cascade)
+  checkItem     CheckItem     @relation(fields: [checkItemId], references: [id], onDelete: Cascade)
+
+  @@index([kitchenTicketId])
+  @@index([checkItemId])
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  checkId    String
+  method     PaymentMethod
+  amountYen  Int
+  mock       Boolean       @default(true)
+  paidAt     DateTime      @default(now())
+  createdAt  DateTime      @default(now())
+
+  check Check @relation(fields: [checkId], references: [id], onDelete: Cascade)
+
+  @@index([checkId])
+}

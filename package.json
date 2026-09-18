@@ -1,0 +1,21 @@
+{
+  "name": "shinso-pos",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @shinso/web dev",
+    "build": "pnpm --filter @shinso/db generate && pnpm --filter @shinso/web build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm --filter @shinso/web test",
+    "db:generate": "pnpm --filter @shinso/db generate",
+    "db:migrate": "pnpm --filter @shinso/db migrate",
+    "db:migrate:deploy": "pnpm --filter @shinso/db migrate:deploy",
+    "db:seed": "pnpm --filter @shinso/db seed",
+    "db:studio": "pnpm --filter @shinso/db studio",
+    "db:reset": "pnpm --filter @shinso/db reset"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
