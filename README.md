@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29，默认 mock，可切 sandbox）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -23,7 +23,7 @@
 ## 包结构
 
 ```
-apps/web          # /login /admin /pos /reservations /waitlist /qr/[token] /staff /kitchen + /api/*
+apps/web          # /login /admin /pos /ops /reservations /waitlist /qr/[token] /staff /kitchen /devices + /api/*
 packages/db       # Prisma schema / migrate / seed
 packages/api      # 校验、金额合计、QR 签名、支付网关抽象
 docker-compose.yml
@@ -211,6 +211,45 @@ pnpm test
 - 预约 CRUD/cancel；seat → open Check；hold ≠ open Check
 - 候位 join/call/seat；一桌最多一张 open Check
 - LINE notify stub
+
+
+
+## 注文運営（退改権限・営業日/班次・異常単 / AUT-31）
+
+営業日タイムゾーンは **Asia/Tokyo**。店長（owner）は送厨済・精算済の取消/改単が可能で、すべて `CheckAuditLog` に残ります。フロアは下書き（draft）のみ取消可。
+
+| ルール | 内容 |
+|--------|------|
+| 退菜 | floor → draft のみ；owner → fired / paid も可（監査必須） |
+| 閉店 | 未結（open）Check が 1 件でもあると **409** |
+| 異常 | `flag-exception` → owner が `resolve-exception` |
+| 帰集 | 開台時にオープン中 Shift / BusinessDay を Check に付与 |
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev` → ログイン `floor@shinso.demo` / `demo1234`
+2. **/ops** — 本日の営業日・開班状態を確認（seed で開班済）。必要なら **開班**
+3. **/pos** — 卓を選んで開台 → 加点 → **送厨** → 明細の **取消**（floor は 403）
+4. ログアウト → `owner@shinso.demo` で再ログイン → 同明細を **取消**（成功・監査ログ）
+5. POS で **異常フラグ** → **/ops** の異常一覧 → owner が **解消**
+6. 全伝票精算後 **/ops** で **閉店**（未結があるときは拒否）
+7. 監査ログが /ops 下部に表示されることを確認
+
+### API
+
+- `GET /api/shifts` · `POST /api/shifts/open` · `POST /api/shifts/close`
+- `POST /api/checks/:id/void-item` · `POST /api/checks/:id/edit-item`
+- `POST /api/checks/:id/flag-exception` · `POST /api/checks/:id/resolve-exception`（resolve は owner）
+- `GET /api/ops/exceptions` · `GET /api/ops/audits`
+
+### 子タスク
+
+| Ticket | 内容 |
+|--------|------|
+| AUT-73 | BusinessDay/Shift + 開收班（未結禁止） |
+| AUT-72 | 退改権限 + void/edit + CheckAuditLog |
+| AUT-75 | 異常フラグ/解消 + /ops UI（日文） |
+| AUT-74 | Seed + テスト + README |
 
 ## 领域不变量
 

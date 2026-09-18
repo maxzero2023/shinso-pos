@@ -28,7 +28,7 @@ export default async function PosPage({
           </a>
         </header>
         <main className="t1-main">
-          <PosClient deviceMode="t1" />
+          <PosClient deviceMode="t1" role={session.role} />
         </main>
       </div>
     );
@@ -36,7 +36,7 @@ export default async function PosPage({
 
   return (
     <AppShell session={session} title="フロア POS">
-      <PosClient />
+      <PosClient role={session.role} />
     </AppShell>
   );
 }

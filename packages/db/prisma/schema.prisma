@@ -7,6 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+enum BusinessDayStatus {
+  open
+  closed
+}
+
+enum ShiftStatus {
+  open
+  closed
+}
+
+enum CheckExceptionStatus {
+  none
+  flagged
+  resolved
+}
+
 enum StaffRole {
   owner
   floor
@@ -54,13 +71,16 @@ model Store {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  areas        Area[]
-  staff        Staff[]
-  categories   MenuCategory[]
-  reservations Reservation[]
-  waitlist     WaitlistTicket[]
-  devices      Device[]
-  printJobs    PrintJob[]
+  areas         Area[]
+  staff         Staff[]
+  categories    MenuCategory[]
+  reservations  Reservation[]
+  waitlist      WaitlistTicket[]
+  devices       Device[]
+  printJobs     PrintJob[]
+  businessDays  BusinessDay[]
+  shifts        Shift[]
+  checkAudits   CheckAuditLog[]
 }
 
 model Area {
@@ -108,7 +128,10 @@ model Staff {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  store       Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  auditLogs   CheckAuditLog[]
+  openedShifts Shift[]        @relation("ShiftOpenedBy")
+  closedShifts Shift[]        @relation("ShiftClosedBy")
 
   @@index([storeId])
   @@index([role])
@@ -181,27 +204,45 @@ model MenuModifier {
 }
 
 model Check {
-  id        String      @id @default(cuid())
-  tableId   String
-  status    CheckStatus @default(open)
-  guestCount Int        @default(1)
-  note      String?
-  openedAt  DateTime    @default(now())
-  closedAt  DateTime?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id         String      @id @default(cuid())
+  tableId    String
+  status     CheckStatus @default(open)
+  guestCount Int         @default(1)
+  note       String?
+  openedAt   DateTime    @default(now())
+  closedAt   DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  /// Asia/Tokyo business day / shift attribution (AUT-31)
+  businessDayId String?
+  shiftId       String?
+
+  exceptionStatus            CheckExceptionStatus @default(none)
+  exceptionNote              String?
+  exceptionFlaggedAt         DateTime?
+  exceptionFlaggedByStaffId  String?
+  exceptionResolvedAt        DateTime?
+  exceptionResolvedByStaffId String?
+  exceptionResolveNote       String?
 
   table          Table            @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  businessDay    BusinessDay?     @relation(fields: [businessDayId], references: [id], onDelete: SetNull)
+  shift          Shift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   items          CheckItem[]
   kitchenTickets KitchenTicket[]
   payments       Payment[]
   printJobs      PrintJob[]
+  auditLogs      CheckAuditLog[]
   reservation    Reservation?
   waitlistTicket WaitlistTicket?
 
   @@index([tableId])
   @@index([status])
   @@index([tableId, status])
+  @@index([businessDayId])
+  @@index([shiftId])
+  @@index([exceptionStatus])
 }
 
 model CheckItem {
@@ -450,4 +491,72 @@ model PrintJob {
   @@index([checkId])
   @@index([kitchenTicketId])
   @@index([createdAt])
+}
+
+/// Calendar business day in store timezone (Asia/Tokyo). AUT-31 / AUT-73.
+model BusinessDay {
+  id              String            @id @default(cuid())
+  storeId         String
+  /// Calendar date (no time) in Asia/Tokyo
+  businessDate    DateTime          @db.Date
+  status          BusinessDayStatus @default(open)
+  openedAt        DateTime          @default(now())
+  closedAt        DateTime?
+  openedByStaffId String?
+  closedByStaffId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  store  Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  shifts Shift[]
+  checks Check[]
+
+  @@unique([storeId, businessDate])
+  @@index([storeId, status])
+}
+
+/// Work shift under a BusinessDay. Close forbidden while open Checks exist.
+model Shift {
+  id              String      @id @default(cuid())
+  storeId         String
+  businessDayId   String
+  status          ShiftStatus @default(open)
+  openedAt        DateTime    @default(now())
+  closedAt        DateTime?
+  openedByStaffId String?
+  closedByStaffId String?
+  note            String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  businessDay   BusinessDay @relation(fields: [businessDayId], references: [id], onDelete: Cascade)
+  openedByStaff Staff?      @relation("ShiftOpenedBy", fields: [openedByStaffId], references: [id], onDelete: SetNull)
+  closedByStaff Staff?      @relation("ShiftClosedBy", fields: [closedByStaffId], references: [id], onDelete: SetNull)
+  checks        Check[]
+
+  @@index([storeId, status])
+  @@index([businessDayId])
+}
+
+/// Who / when / what on a Check (void, edit, exception). AUT-31 / AUT-72.
+model CheckAuditLog {
+  id        String   @id @default(cuid())
+  storeId   String
+  checkId   String
+  staffId   String
+  /// void_item | edit_item | flag_exception | resolve_exception
+  action    String
+  summary   String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  check Check @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Restrict)
+
+  @@index([storeId, createdAt])
+  @@index([checkId, createdAt])
+  @@index([staffId])
+  @@index([action])
 }
