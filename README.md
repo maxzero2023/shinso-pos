@@ -1,6 +1,6 @@
 # SHINSO 前厅 POS + 点餐 MVP
 
-可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）。
+可本地演示的餐饮前厅业务端：**开台 → 点餐（POS / 客人 QR / 员工手持）→ 厨打 → 结账 → 清台**（同一桌同一账单），以及 **自社预约 + 候位叫号**（AUT-46）、**信用卡 + PayPay**（AUT-29）、**硬件シミュレータ**（AUT-30）、**注文運営**（AUT-31）、**基礎レポート**（AUT-32）、**LINE 会員 CRM**（AUT-33）、**老板 LINE 日報/週報**（AUT-34）。
 
 - 仓库：https://github.com/maxzero2023/shinso-pos
 - 父需求：Linear [AUT-28](https://linear.app/autoagentshinso/issue/AUT-28) / [AUT-46](https://linear.app/autoagentshinso/issue/AUT-46)
@@ -359,6 +359,63 @@ pnpm test
 | AUT-81 | POS/Admin CRM UI + Seed/测试/README |
 
 
+
+
+## 老板 LINE 日報/週報推送（AUT-34）
+
+店舗オーナー向けに **Asia/Tokyo** の日報（昨日）・週報（月〜日）を LINE Messaging **stub** で送信。指標は AUT-32 レポート（`packages/api/src/reports.ts`）と同一口径。実 LINE ネットワーク不要。
+
+### ドメイン / 不変条件
+
+| 項目 | 決定 |
+|------|------|
+| 绑定 | `OwnerLineBinding(storeId, lineUserId, dailyEnabled, weeklyEnabled)` — 店舗につき 1 |
+| 未绑定 | **送信しない**（skipped ログ） |
+| スイッチ OFF | **送信しない**（skipped ログ） |
+| 口径 | paid Check のみ・void 除外・`Payment.paidAt`（無ければ `closedAt`）・円整数 |
+| スナップショット | 送信時の指標を `OwnerLineDeliveryLog.snapshot` に保存 |
+| 失敗 | **1 回リトライ**後 `failed` ログ |
+| 権限 | 绑定/設定/トリガーは **owner**；ログ閲覧は owner + floor |
+
+### API
+
+- `GET /api/crm/owner-line` — 現在の绑定
+- `POST /api/crm/owner-line/bind` — `{ lineUserId? }`（simulator は省略可）
+- `PATCH /api/crm/owner-line/settings` — `{ dailyEnabled?, weeklyEnabled? }`
+- `GET /api/crm/owner-line/delivery-logs?limit=`
+- `POST /api/crm/owner-line/trigger` — `{ kind: "daily"|"weekly", date?: "YYYY-MM-DD" }`（デモ用手動実行）
+
+### Seed
+
+`pnpm db:seed` で:
+
+| 項目 | 内容 |
+|------|------|
+| 绑定 | `sim_owner_line`（日報/週報 ON） |
+| 昨日 paid | 3 件（日報に数字が出る） |
+| 週内 paid | 月曜分も投入（週報用） |
+
+### デモパス
+
+1. `pnpm db:seed` → `pnpm dev`
+2. ログイン `owner@shinso.demo` / `demo1234`
+3. **/admin/crm** — 「オーナー LINE 日報/週報」で绑定確認（seed 済み）
+4. **日報トリガー** → サーバログに `[line:messaging:stub]`、画面の送信記録に `sent` + 売上摘要
+5. 日報スイッチ OFF → 再トリガー → `skipped (disabled)`、stub 送信なし
+6. スイッチ ON に戻し **週報トリガー** → Mon〜Sun 期間の摘要
+7. `GET /api/crm/owner-line/delivery-logs` または画面一覧で履歴確認
+8. （任意）binding 削除後トリガー → `skipped (unbound)`
+
+### 子タスク
+
+| Ticket | 内容 |
+|--------|------|
+| AUT-82 | OwnerLineBinding + bind/settings API |
+| AUT-83 | 日报/周报 digest job（Asia/Tokyo） |
+| AUT-84 | delivery-logs API |
+| AUT-85 | Admin UI + seed/tests/README |
+
+
 ## 领域不变量
 
 - 一张桌同时最多一张 `open` Check
@@ -367,6 +424,7 @@ pnpm test
 - 预约 `hold`/`confirmed` 预占 ≠ `open` Check；仅 seat 创建 Check
 - 已 `cancelled`/`noshow` 预约不可开台；候位叫号超时可过号（默认 10 分）
 - LINE 会员：`(storeId, lineUserId)` 唯一；集点仅 paid Check；券核销后不可再核销
+- 老板 LINE 日報：未绑定/开关 OFF 不发送；快照与 AUT-32 报表口径一致；失败最多 1 次重试
 
 ## 子任务对照
 
@@ -399,6 +457,11 @@ pnpm test
 | AUT-79 | Member/Coupon 模型 + LINE bind 沙箱 |
 | AUT-80 | 集点（paid Check）+ 券发放/核销幂等 |
 | AUT-81 | POS/Admin CRM UI + Seed/测试/README |
+| AUT-34 | 老板 LINE 日报/周报推送 |
+| AUT-82 | OwnerLineBinding + bind/settings |
+| AUT-83 | 日报/周报 digest job |
+| AUT-84 | delivery-logs API |
+| AUT-85 | Admin UI + seed/tests/README |
 
 ## 明确不做（本 MVP）
 

@@ -81,10 +81,12 @@ model Store {
   businessDays  BusinessDay[]
   shifts        Shift[]
   checkAudits   CheckAuditLog[]
-  members         Member[]
-  couponTemplates CouponTemplate[]
-  couponIssues    CouponIssue[]
-  pointAwards     PointAward[]
+  members            Member[]
+  couponTemplates    CouponTemplate[]
+  couponIssues       CouponIssue[]
+  pointAwards        PointAward[]
+  ownerLineBinding   OwnerLineBinding?
+  ownerLineDeliveryLogs OwnerLineDeliveryLog[]
 }
 
 model Area {
@@ -652,4 +654,57 @@ model PointAward {
 
   @@index([storeId, memberId])
   @@index([memberId])
+}
+
+enum OwnerLineDigestKind {
+  daily
+  weekly
+}
+
+enum OwnerLineDeliveryStatus {
+  sent
+  failed
+  skipped
+}
+
+/// Owner LINE digest binding (one per store). AUT-34 / AUT-82.
+model OwnerLineBinding {
+  id            String   @id @default(cuid())
+  storeId       String   @unique
+  lineUserId    String
+  dailyEnabled  Boolean  @default(true)
+  weeklyEnabled Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  store        Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  deliveryLogs OwnerLineDeliveryLog[]
+
+  @@index([lineUserId])
+}
+
+/// Delivery / skip / failure log with metrics snapshot. AUT-34 / AUT-84.
+model OwnerLineDeliveryLog {
+  id           String                   @id @default(cuid())
+  storeId      String
+  bindingId    String?
+  kind         OwnerLineDigestKind
+  status       OwnerLineDeliveryStatus
+  /// Asia/Tokyo YYYY-MM-DD (daily: same as periodTo)
+  periodFrom   String
+  periodTo     String
+  messageText  String                   @default("")
+  /// Snapshot of report metrics at send time (same口径 as AUT-32)
+  snapshot     Json?
+  errorMessage String?
+  attemptCount Int                      @default(1)
+  sentAt       DateTime?
+  createdAt    DateTime                 @default(now())
+
+  store   Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  binding OwnerLineBinding? @relation(fields: [bindingId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, createdAt])
+  @@index([storeId, kind, createdAt])
+  @@index([bindingId])
 }
