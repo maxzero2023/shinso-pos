@@ -66,6 +66,8 @@ pnpm dev
 
 Seed 内容：ブランド「SHINSO Demo」配下に **店舗 A「シンソウデモ店」**（3 エリア / 12 卓 / 23 品）と **店舗 B「シンソウデモ店 B」**（隔離デモ用ミニメニュー）。既存 `owner@` / `floor@` / `kitchen@` ログインは変更なし。
 
+> 部署到 Vercel + Neon（demo）：见 [docs/deploy-vercel-neon.md](docs/deploy-vercel-neon.md)
+
 ## 演示路径
 
 1. `docker compose up -d` → `pnpm db:seed` → `pnpm dev`

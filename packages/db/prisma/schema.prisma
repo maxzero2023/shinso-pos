@@ -1,9 +1,14 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // rhel-openssl-3.0.x = Vercel serverless (Amazon Linux 2023, Node 20); native = local dev
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
+  // Neon: DATABASE_URL = pooled (-pooler host, add &pgbouncer=true) for runtime.
+  // Migrations/seed should use the direct (non-pooled) URL: DATABASE_URL="$DIRECT_URL" pnpm db:migrate:deploy
+  // (directUrl is intentionally NOT set here so local dev needs only DATABASE_URL.)
   url      = env("DATABASE_URL")
 }
 
